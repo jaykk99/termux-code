@@ -1,0 +1,21 @@
+{
+  "name": "termux-code",
+  "version": "0.1.0",
+  "description": "A coding agent for Termux, with a Vercel gateway that holds your model keys.",
+  "type": "module",
+  "bin": { "termux-code": "./bin/termux-code.mjs" },
+  "files": ["bin", "lib", "README.md"],
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "cli": "node ./bin/termux-code.mjs"
+  },
+  "dependencies": {
+    "next": "^15.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,230 @@
+:root {
+  --bg: #141824;
+  --surface: #1b2130;
+  --surface-lift: #222939;
+  --line: #2b3348;
+  --text: #e2e7f0;
+  --dim: #7d88a1;
+  --amber: #e9a23b;
+  --sky: #77b6d6;
+  --rose: #d97a7a;
+
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--sky);
+  text-decoration-color: var(--line);
+  text-underline-offset: 3px;
+}
+
+.shell {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.25rem 5rem;
+}
+
+/* The masthead doubles as the shell prompt — the product's own vernacular. */
+.masthead {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 2.75rem;
+}
+
+.masthead .caret {
+  color: var(--amber);
+}
+
+.masthead h1 {
+  font-size: 1.05rem;
+  font-weight: 500;
+  margin: 0;
+  letter-spacing: 0.01em;
+}
+
+.masthead nav {
+  margin-left: auto;
+  font-size: 0.85rem;
+}
+
+.lede {
+  font-size: 1.55rem;
+  line-height: 1.35;
+  font-weight: 400;
+  margin: 0 0 1.25rem;
+  max-width: 22ch;
+}
+
+.sub {
+  color: var(--dim);
+  max-width: 62ch;
+  margin: 0 0 2.5rem;
+}
+
+/* Install block: the hero. Amber caret, selectable command, quiet frame. */
+.install {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1rem 1.1rem;
+  overflow-x: auto;
+  margin-bottom: 0.65rem;
+}
+
+.install code {
+  white-space: pre;
+  font-size: 0.9rem;
+}
+
+.install .caret {
+  color: var(--amber);
+  user-select: none;
+  margin-right: 0.6rem;
+}
+
+.note {
+  color: var(--dim);
+  font-size: 0.85rem;
+  margin: 0 0 3rem;
+}
+
+.block {
+  margin-bottom: 3rem;
+}
+
+.block h2 {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--text);
+  margin: 0 0 0.9rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.block p {
+  color: var(--dim);
+  margin: 0 0 0.8rem;
+}
+
+/* Model rows. Flat list, not cards — a catalogue reads better as a list. */
+.rows {
+  border-top: 1px solid var(--line);
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.8rem 0.5rem;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.row:hover,
+.row:focus-visible {
+  background: var(--surface);
+}
+
+.row .pip {
+  color: var(--line);
+  padding-top: 0.1rem;
+}
+
+.row[data-active='true'] .pip {
+  color: var(--amber);
+}
+
+.row .name {
+  display: block;
+}
+
+.row .meta {
+  display: block;
+  color: var(--dim);
+  font-size: 0.8rem;
+}
+
+.row .free {
+  color: var(--sky);
+  font-size: 0.8rem;
+  margin-left: auto;
+  padding-top: 0.15rem;
+}
+
+.group {
+  margin: 2.25rem 0 0;
+}
+
+.group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.4rem;
+}
+
+.group-head span:last-child {
+  color: var(--dim);
+  font-size: 0.8rem;
+}
+
+.field {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.65rem 0.8rem;
+  margin-bottom: 1rem;
+}
+
+.field:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 1px;
+}
+
+.state {
+  color: var(--dim);
+  padding: 1.5rem 0;
+}
+
+.state.bad {
+  color: var(--rose);
+}
+
+:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
