@@ -69,7 +69,12 @@ async function loadCatalogue(cfg) {
 /* ---------- prompts ---------- */
 
 function ask(rl, question) {
-  return new Promise((resolve) => rl.question(question, resolve));
+  return new Promise((resolve) => {
+    // Ctrl-D / EOF on piped stdin: resolve null so the loop exits cleanly
+    // instead of throwing ERR_USE_AFTER_CLOSE.
+    if (rl.closed) return resolve(null);
+    rl.question(question, (answer) => resolve(answer));
+  });
 }
 
 /**
@@ -87,7 +92,8 @@ async function approve(rl, desc, detail) {
         colour: C.amber,
       })
   );
-  const answer = (await ask(rl, `  ${C.amber('❯')} allow? ${C.dim('[y/N]')} `)).trim().toLowerCase();
+  const raw = await ask(rl, `  ${C.amber('❯')} allow? ${C.dim('[y/N]')} `);
+  const answer = (raw ?? '').trim().toLowerCase(); // closed stdin denies
   return answer === 'y' || answer === 'yes';
 }
 
@@ -128,12 +134,30 @@ async function chooseModel(models, current, rl) {
 
 /* ---------- the loop ---------- */
 
-async function turn(model, messages, rl, root) {
+/**
+ * POST a completion turn to the gateway. The gateway holds the provider keys
+ * (Vercel env); only this phone runs the tools. Returns the gateway's reply
+ * in the same shape local complete() returns: { text, toolCalls, assistantMessage }.
+ */
+async function completeViaGateway(gateway, model, messages) {
+  const res = await fetch(gateway.replace(/\/$/, '') + '/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, messages }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.error) {
+    throw new Error(data.error || `Gateway returned HTTP ${res.status}.`);
+  }
+  return data;
+}
+
+async function turn(model, messages, rl, root, completeFn) {
   for (let step = 0; step < MAX_STEPS; step++) {
     const spin = spinner(step === 0 ? 'Thinking' : 'Working');
     let reply;
     try {
-      reply = await complete(model, messages);
+      reply = await completeFn();
     } catch (err) {
       spin.stop();
       console.log('\n' + box(wrap(err.message, width() - 6), { title: C.red('error'), colour: C.red }));
@@ -224,7 +248,9 @@ async function main() {
   const messages = [{ role: 'system', content: SYSTEM_PROMPT }];
 
   for (;;) {
-    const input = (await ask(rl, `${C.amber('❯')} `)).trim();
+    const raw = await ask(rl, `${C.amber('❯')} `);
+    if (raw === null) break; // stdin closed (Ctrl-D / piped EOF)
+    const input = raw.trim();
     if (!input) continue;
     if (input === '/exit' || input === '/quit') break;
 
@@ -330,7 +356,13 @@ async function main() {
     }
 
     messages.push({ role: 'user', content: input });
-    await turn(model, messages, rl, root);
+    // A configured gateway holds the provider keys server-side (that's the
+    // whole point of the deployment); without one, call providers directly
+    // from the phone, which still works for the keyless providers.
+    const completeFn = cfg.gateway
+      ? () => completeViaGateway(cfg.gateway, model, messages)
+      : () => complete(model, messages);
+    await turn(model, messages, rl, root, completeFn);
     console.log('');
   }
 
