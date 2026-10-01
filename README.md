@@ -141,7 +141,17 @@ each is handled to match:
 
 A model without tool support still answers in plain text — it just can't
 read, write, or run anything on the phone for that turn. The settings page
-and `/model` picker both flag these as "chat only, no file access."
+and `/model` picker both flag these as "chat only, no file access." The
+catalogue API reports the same honestly as `capabilities: { chat, tools }`
+on every model.
+
+## Web console
+
+`/console` talks to the gateway exactly the way the Termux CLI does — pick
+a model, send one message, read the reply with code blocks highlighted. It
+keeps a per-device request history (model, timing, prompt/reply previews).
+Useful for checking a model answers before you commit a whole coding
+session to it, and it works fine from a phone browser.
 
 ## Commands
 

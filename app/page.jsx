@@ -77,6 +77,16 @@ export default async function Home() {
       </section>
 
       <section className="block">
+        <h2>Try the gateway</h2>
+        <p>
+          The <a href="/console">console</a> talks to the gateway exactly the
+          way the Termux CLI does — pick a model, send one message, see the
+          reply. Useful for checking a model answers before you commit a whole
+          coding session to it.
+        </p>
+      </section>
+
+      <section className="block">
         <h2>Commands</h2>
         <p>
           <code>/model</code> switch model, <code>/models</code> list everything,{' '}

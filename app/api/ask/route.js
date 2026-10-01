@@ -1,4 +1,5 @@
 import { sendToErrorInbox } from '../../../lib/agent.mjs';
+import { readJSON, bad, upstreamError, logRequest } from '../../../lib/http.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -9,20 +10,53 @@ export const maxDuration = 280; // matches error-inbox's own v1/message route
  * talks to error-inbox's own hosted agent — its own tools, its own model
  * routing — not termux-code's local filesystem agent. Body: { message, agent? }
  */
+
+const MAX_MESSAGE_CHARS = 20_000;
+
 export async function POST(req) {
+  const started = Date.now();
   let body;
   try {
-    body = await req.json();
-  } catch {
-    return Response.json({ ok: false, error: 'Body must be JSON.' }, { status: 400 });
+    body = await readJSON(req);
+  } catch (res) {
+    if (res instanceof Response) {
+      logRequest(req, res.status || 400, Date.now() - started);
+      return res;
+    }
+    throw res;
   }
+
   const { message, agent } = body;
-  if (!message) return Response.json({ ok: false, error: "Body must include 'message'." }, { status: 400 });
+  if (typeof message !== 'string' || !message.trim()) {
+    const res = bad('BAD_MESSAGES', "Body must include 'message'.", 400);
+    logRequest(req, 400, Date.now() - started);
+    return res;
+  }
+  if (message.length > MAX_MESSAGE_CHARS) {
+    const res = bad('MESSAGE_TOO_LONG', `Message exceeds ${MAX_MESSAGE_CHARS} characters.`, 413);
+    logRequest(req, 413, Date.now() - started);
+    return res;
+  }
+  if (agent !== undefined && (typeof agent !== 'string' || agent.length > 100)) {
+    const res = bad('BAD_MESSAGES', "'agent' must be a short string.", 400);
+    logRequest(req, 400, Date.now() - started);
+    return res;
+  }
 
   try {
     const reply = await sendToErrorInbox(message, { agent });
-    return Response.json({ ok: true, reply });
+    const res = Response.json({ ok: true, reply });
+    logRequest(req, 200, Date.now() - started);
+    return res;
   } catch (err) {
-    return Response.json({ ok: false, error: err.message }, { status: 502 });
+    const message = err?.message || '';
+    if (/api key/i.test(message)) {
+      const res = bad('NO_KEY', message.slice(0, 300), 401);
+      logRequest(req, 401, Date.now() - started);
+      return res;
+    }
+    const res = upstreamError(err);
+    logRequest(req, res.status, Date.now() - started);
+    return res;
   }
 }

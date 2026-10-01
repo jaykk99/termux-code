@@ -14,7 +14,7 @@ export default function RootLayout({ children }) {
             <span className="caret">›</span>
             <h1>termux-code</h1>
             <nav>
-              <a href="/">home</a> <a href="/settings">settings</a>
+              <a href="/">home</a> <a href="/console">console</a> <a href="/settings">settings</a>
             </nav>
           </header>
           {children}

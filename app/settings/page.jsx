@@ -122,7 +122,9 @@ export default function Settings() {
           <div className="rows">
             {list.map((m) => {
               const active = selected && selected.id === m.id && selected.source === m.source;
-              const noTools = NO_TOOLS.has(m.provider);
+              // capabilities.tools comes from the gateway itself; fall back to
+              // the old hardcoded set for older deployments.
+              const noTools = m.capabilities ? !m.capabilities.tools : NO_TOOLS.has(m.provider);
               return (
                 <button
                   className="row"

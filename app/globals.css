@@ -228,3 +228,199 @@ a {
     animation: none !important;
   }
 }
+
+/* ---------- gateway console ---------- */
+
+.lbl {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--dim);
+  margin-bottom: 0.4rem;
+}
+
+.clog {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+  max-height: 26rem;
+  overflow-y: auto;
+  padding: 0.75rem 0.9rem;
+  margin-bottom: 0.9rem;
+}
+
+.cturn {
+  margin-bottom: 1.25rem;
+}
+
+.cturn:last-child {
+  margin-bottom: 0.25rem;
+}
+
+.cturn-head {
+  font-size: 0.78rem;
+  color: var(--dim);
+  margin-bottom: 0.35rem;
+}
+
+.cturn.user .cturn-head {
+  color: var(--amber);
+}
+
+.cturn .prose {
+  margin: 0 0 0.7rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cturn .prose code {
+  background: var(--surface-lift);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0 0.3em;
+  font-size: 0.88em;
+}
+
+.cerror {
+  color: var(--rose);
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cnote {
+  color: var(--dim);
+  font-size: 0.8rem;
+  margin: 0.5rem 0 0;
+}
+
+.cblock {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  margin: 0 0 0.7rem;
+  overflow: hidden;
+}
+
+.cblock-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--surface-lift);
+  padding: 0.3rem 0.6rem;
+  font-size: 0.78rem;
+  color: var(--dim);
+}
+
+.cblock-head button {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--dim);
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  cursor: pointer;
+}
+
+.cblock-head button:hover {
+  color: var(--text);
+  border-color: var(--dim);
+}
+
+.cblock pre {
+  margin: 0;
+  padding: 0.7rem 0.8rem;
+  overflow-x: auto;
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.cblock code .str { color: #a8c8a0; }
+.cblock code .com { color: #5c6a8a; font-style: italic; }
+.cblock code .num { color: #d8a878; }
+.cblock code .kw { color: #e9a23b; }
+
+.crow {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.cinput {
+  flex: 1;
+  resize: vertical;
+  min-height: 4.5rem;
+  margin-bottom: 0;
+}
+
+.cbtns {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 5.5rem;
+}
+
+.btn {
+  background: var(--amber);
+  border: 1px solid var(--amber);
+  border-radius: 4px;
+  color: #141824;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.55rem 0.9rem;
+  cursor: pointer;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.btn.danger {
+  background: var(--rose);
+  border-color: var(--rose);
+}
+
+.btn.ghost {
+  background: none;
+  border-color: var(--line);
+  color: var(--dim);
+  font-weight: 400;
+}
+
+.btn.ghost:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--dim);
+}
+
+.btn.small {
+  font-size: 0.75rem;
+  padding: 0.3rem 0.6rem;
+  margin-bottom: 0.75rem;
+}
+
+.h2btn {
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+
+.hrow {
+  cursor: default;
+}
+
+@media (max-width: 480px) {
+  .crow {
+    flex-direction: column;
+  }
+  .cbtns {
+    flex-direction: row;
+    width: 100%;
+  }
+  .cbtns .btn {
+    flex: 1;
+  }
+}
