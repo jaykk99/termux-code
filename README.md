@@ -101,7 +101,7 @@ error-inbox's own `.env` exactly, so you can copy values straight across:
 | `GRATISFY_API_KEY` + `GRATISFY_BASE_URL` | Gratisfy | Yes (models discovered live) |
 | `OMNIROUTE_API_KEY` + `OMNIROUTE_BASE_URL` | OmniRoute (self-hosted) | Yes, both |
 | `ANTHROPIC_API_KEY` + `ANTHROPIC_MODEL` | Anthropic | Yes |
-| `ERROR_INBOX_URL` | — | No, defaults to `error-inbox.vercel.app` |
+| `ERROR_INBOX_URL` | — | No, defaults to `error-inbox.onrender.com` |
 | `ERROR_INBOX_KEY` | — | Only for `/ask` (an `eibx_...` token, minted on error-inbox's Settings page) |
 | `NEXT_PUBLIC_SITE_URL` | — | Shown in the install command on the landing page |
 
