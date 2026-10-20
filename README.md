@@ -60,7 +60,7 @@ its own settings page makes.
 
 ```sh
 pkg install nodejs git
-curl -fsSL https://<your-deployment>.vercel.app/install.sh | bash
+curl -fsSL https://termux-code.vercel.app/install.sh | bash
 cd ~/projects/whatever
 termux-code
 ```
@@ -71,7 +71,7 @@ The installer clones into `~/.termux-code/app`, drops a launcher on
 ## Deploy the gateway
 
 ```sh
-git clone https://github.com/<you>/termux-code.git
+git clone https://github.com/jaykk99/termux-code.git
 cd termux-code
 npm install
 vercel --prod
