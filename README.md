@@ -162,9 +162,43 @@ session to it, and it works fine from a phone browser.
 | `/ask <message>` | Message your error-inbox agent instead (no file access) |
 | `/inbox-key <token>` | Save the `eibx_...` token `/ask` uses |
 | `/gateway <url>` | Point at a different deployment |
+| `/sessions` | List saved conversation sessions |
+| `/session <n>` | Resume a session by number or id |
+| `/new` | Start a new session |
+| `/rename <title>` | Rename the current session |
+| `/export [file]` | Export the session as Markdown |
+| `/failover` | Show provider failover status |
 | `/clear` | Forget the conversation, keep the session |
 | `/cwd` | Show the workspace root |
 | `/exit` | Quit |
+
+## Provider failover
+
+Local completions (no gateway) walk a failover chain instead of dying on the
+first 429 or hang: your chosen model first, then the rest of the catalogue in
+failover order — keyless tool-capable providers first, then keyed ones, then
+chat-only models last. Every failed attempt prints one line with the provider,
+latency and error, and if the whole chain fails you get the full attempt log
+instead of a generic error.
+
+A per-process circuit breaker backs it: three consecutive failures cool a
+provider down for ten minutes, then it becomes eligible again automatically.
+`/failover` shows which providers are cooling down and why.
+
+## Sessions
+
+Conversations persist as JSONL under `~/.termux-code/sessions/`, so quitting
+and restarting resumes where you left off. `/sessions` lists them,
+`/session <n>` switches, `/rename` titles, `/export` writes a Markdown
+transcript. Long sessions compact automatically past 400 messages (oldest
+tool exchanges fold into a summary line). Command history also persists
+across restarts (`~/.termux-code/history`, last 200 commands).
+
+## Tests
+
+`npm test` runs the `node:test` battery in `tests/`: gateway HTTP helpers,
+the model registry and its trusted resolution, the failover chain and
+circuit breaker, and session persistence.
 
 ## Tools the local agent has
 

@@ -10,7 +10,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "cli": "node ./bin/termux-code.mjs"
+    "cli": "node ./bin/termux-code.mjs",
+    "test": "node --test tests/http.test.mjs tests/models.test.mjs tests/failover.test.mjs tests/sessions.test.mjs"
   },
   "dependencies": {
     "next": "^15.0.0",

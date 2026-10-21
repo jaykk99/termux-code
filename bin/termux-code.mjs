@@ -16,11 +16,16 @@ import process from 'node:process';
 import { runTool } from '../lib/tools.mjs';
 import { complete, appendToolResult, SYSTEM_PROMPT, sendToErrorInbox } from '../lib/agent.mjs';
 import { listModels, directModels } from '../lib/models.mjs';
+import { FailureTracker, completeWithFailover, FailoverError, formatAttempts } from '../lib/failover.mjs';
+import { SessionStore, deriveTitle } from '../lib/sessions.mjs';
 import { C, box, banner, toolHeader, toolResult, spinner, pick, wrap, width } from '../lib/tui.mjs';
 
 const CONFIG_DIR = path.join(os.homedir(), '.termux-code');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
+const SESSIONS_DIR = path.join(CONFIG_DIR, 'sessions');
+const HISTORY_FILE = path.join(CONFIG_DIR, 'history');
 const MAX_STEPS = 24;
+const HISTORY_KEEP = 200;
 
 /** Providers whose function-calling shape we don't send tools to. */
 const NO_TOOLS = new Set(['gemini', 'cohere', 'horde']);
@@ -64,6 +69,53 @@ async function loadCatalogue(cfg) {
     /* ignore */
   }
   return directModels();
+}
+
+/* ---------- command history + sessions ---------- */
+
+/**
+ * Persistent command history. readline keeps history in-memory only; we load
+ * the last HISTORY_KEEP commands on start (most recent last in the file,
+ * most recent first in rl.history) and write them back on exit.
+ */
+async function loadHistory(rl) {
+  try {
+    const text = await fs.readFile(HISTORY_FILE, 'utf8');
+    const lines = text.split('\n').map((l) => l.trim()).filter(Boolean).slice(-HISTORY_KEEP);
+    if (Array.isArray(rl.history)) {
+      for (const line of lines) rl.history.unshift(line);
+      rl.history.length = Math.min(rl.history.length, HISTORY_KEEP);
+    }
+  } catch {
+    /* first run: no history file yet */
+  }
+}
+
+async function saveHistory(rl) {
+  try {
+    if (!Array.isArray(rl.history)) return;
+    const lines = [...rl.history].reverse().slice(-HISTORY_KEEP);
+    await fs.mkdir(CONFIG_DIR, { recursive: true });
+    await fs.writeFile(HISTORY_FILE, lines.join('\n') + '\n', 'utf8');
+  } catch {
+    /* history is a nice-to-have; never fail shutdown over it */
+  }
+}
+
+/** Resume the most recent session, or start a fresh one. */
+async function resumeSession(store) {
+  const sessions = await store.list();
+  if (sessions.length) {
+    const loaded = await store.load(sessions[0].id);
+    if (loaded) return loaded;
+  }
+  const meta = await store.create('untitled');
+  return { meta, messages: [] };
+}
+
+function sessionHeadline(session) {
+  const n = session.messages.filter((m) => m.role !== 'system').length;
+  return `${C.dim('session')} ${C.amber(session.meta.title)} ${C.dim(`(${n} messages, id ${session.meta.id})`)}`;
 }
 
 /* ---------- prompts ---------- */
@@ -152,6 +204,27 @@ async function completeViaGateway(gateway, model, messages) {
   return data;
 }
 
+/**
+ * Walk the failover chain for one assistant step: the chosen model first,
+ * then the rest of the catalogue in failover order (keyless tool-capable,
+ * then keyed, then chat-only, cooling-down providers last). Failed attempts
+ * print one dim line each so a flapping provider is visible, not silent.
+ */
+async function runFailoverTurn(model, models, messages, tracker, completeOne) {
+  const rest = models.filter(
+    (m) => !(m.id === model.id && m.provider === model.provider && m.source === model.source)
+  );
+  const { model: winner, reply } = await completeWithFailover([model, ...rest], messages, completeOne, tracker, {
+    onAttempt: (a) => {
+      if (!a.ok) console.log(C.dim(`  [failover] ${a.provider} failed (${a.latencyMs}ms): ${a.error}`));
+    },
+  });
+  if (winner.id !== model.id || winner.provider !== model.provider) {
+    console.log(C.dim(`  [failover] answered by ${winner.provider}/${winner.id}`));
+  }
+  return reply;
+}
+
 async function turn(model, messages, rl, root, completeFn) {
   for (let step = 0; step < MAX_STEPS; step++) {
     const spin = spinner(step === 0 ? 'Thinking' : 'Working');
@@ -160,8 +233,19 @@ async function turn(model, messages, rl, root, completeFn) {
       reply = await completeFn();
     } catch (err) {
       spin.stop();
-      console.log('\n' + box(wrap(err.message, width() - 6), { title: C.red('error'), colour: C.red }));
-      console.log(C.dim('  /model to switch, or check the key for this provider.\n'));
+      if (err instanceof FailoverError) {
+        console.log(
+          '\n' +
+            box(['Every provider in the chain failed.', '', ...formatAttempts(err.attempts).map(C.dim)], {
+              title: C.red('failover exhausted'),
+              colour: C.red,
+            })
+        );
+        console.log(C.dim('  Providers cool down for 10 minutes after repeated failures. /model to switch.\n'));
+      } else {
+        console.log('\n' + box(wrap(err.message, width() - 6), { title: C.red('error'), colour: C.red }));
+        console.log(C.dim('  /model to switch, or check the key for this provider.\n'));
+      }
       return;
     }
     spin.stop();
@@ -200,8 +284,14 @@ const HELP = [
   ['/model', 'pick a model for local read/edit/bash work'],
   ['/models', 'list everything reachable, grouped by source'],
   ['/ask <msg>', 'message your Error Inbox agent instead (no file access)'],
-  ['/inbox-key <t>', 'save the eibx_… token /ask uses'],
+  ['/inbox-key <t>', 'save the eibx_... token /ask uses'],
   ['/gateway <url>', 'point at a different deployment'],
+  ['/sessions', 'list saved conversation sessions'],
+  ['/session <n>', 'resume a session by number or id'],
+  ['/new', 'start a new session'],
+  ['/rename <t>', 'rename the current session'],
+  ['/export [file]', 'export the session as Markdown'],
+  ['/failover', 'show provider failover status'],
   ['/clear', 'forget this conversation'],
   ['/cwd', 'show the workspace root'],
   ['/exit', 'quit'],
@@ -234,6 +324,27 @@ async function main() {
   }
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  await loadHistory(rl);
+
+  const store = new SessionStore(SESSIONS_DIR);
+  const tracker = new FailureTracker();
+  let session = await resumeSession(store);
+  const messages = session.messages.length
+    ? session.messages
+    : [{ role: 'system', content: SYSTEM_PROMPT }];
+
+  /** Persist the conversation without ever breaking the loop. */
+  const persist = async () => {
+    try {
+      if (session.meta.title === 'untitled') {
+        const title = deriveTitle(messages, 'untitled');
+        if (title !== 'untitled') session.meta = await store.rename(session.meta.id, title);
+      }
+      session.meta = await store.save(session.meta.id, messages);
+    } catch {
+      /* persistence is best-effort; the chat continues */
+    }
+  };
 
   console.log(
     banner({
@@ -243,9 +354,8 @@ async function main() {
       free: model.free,
     })
   );
+  console.log('  ' + sessionHeadline(session));
   console.log(C.dim('  /help for commands · ctrl-c to quit\n'));
-
-  const messages = [{ role: 'system', content: SYSTEM_PROMPT }];
 
   for (;;) {
     const raw = await ask(rl, `${C.amber('❯')} `);
@@ -340,8 +450,105 @@ async function main() {
     }
 
     if (input === '/clear') {
-      messages.length = 1;
+      messages.length = 0;
+      messages.push({ role: 'system', content: SYSTEM_PROMPT });
+      await persist();
       console.log(C.dim('  Conversation cleared.\n'));
+      continue;
+    }
+
+    if (input === '/sessions') {
+      const sessions = await store.list();
+      if (!sessions.length) {
+        console.log(C.dim('  No saved sessions yet.\n'));
+        continue;
+      }
+      console.log(
+        '\n' +
+          box(
+            sessions.slice(0, 20).map(
+              (s, i) =>
+                `${s.id === session.meta.id ? C.amber('●') : C.grey('○')} ${C.amber(String(i + 1).padEnd(3))} ${s.title} ${C.dim(
+                  `(${s.messages} msgs · ${s.updated ? s.updated.slice(0, 10) : '?'})`
+                )}`
+            ),
+            { title: 'sessions' }
+          ) +
+          '\n'
+      );
+      continue;
+    }
+
+    if (input.startsWith('/session')) {
+      const arg = input.slice(8).trim();
+      const sessions = await store.list();
+      const hit =
+        sessions.find((s) => s.id === arg) ||
+        sessions[Number(arg) - 1];
+      if (!hit) {
+        console.log(C.dim('  No such session. /sessions to list.\n'));
+        continue;
+      }
+      await persist();
+      const loaded = await store.load(hit.id);
+      session = loaded;
+      messages.length = 0;
+      messages.push(...(loaded.messages.length ? loaded.messages : [{ role: 'system', content: SYSTEM_PROMPT }]));
+      console.log('  ' + sessionHeadline(session) + '\n');
+      continue;
+    }
+
+    if (input === '/new') {
+      await persist();
+      session = { meta: await store.create('untitled'), messages: [] };
+      messages.length = 0;
+      messages.push({ role: 'system', content: SYSTEM_PROMPT });
+      console.log('  ' + sessionHeadline(session) + '\n');
+      continue;
+    }
+
+    if (input.startsWith('/rename')) {
+      const title = input.slice(7).trim();
+      if (!title) {
+        console.log(C.dim('  Usage: /rename <title>\n'));
+        continue;
+      }
+      session.meta = await store.rename(session.meta.id, title);
+      console.log('  ' + sessionHeadline(session) + '\n');
+      continue;
+    }
+
+    if (input.startsWith('/export')) {
+      const dest = input.slice(7).trim() || path.join(SESSIONS_DIR, `${session.meta.id}.md`);
+      try {
+        const md = await store.exportMarkdown(session.meta.id);
+        await fs.mkdir(path.dirname(dest), { recursive: true });
+        await fs.writeFile(dest, md, 'utf8');
+        console.log(C.dim(`  Exported to ${dest}\n`));
+      } catch (err) {
+        console.log(C.dim(`  Export failed: ${err.message}\n`));
+      }
+      continue;
+    }
+
+    if (input === '/failover') {
+      const summary = tracker.summary();
+      if (!summary.length) {
+        console.log(C.dim('  No provider failures recorded this run. Failover is on.\n'));
+      } else {
+        console.log(
+          '\n' +
+            box(
+              summary.map((s) =>
+                `${s.coolingDown ? C.red('●') : C.amber('○')} ${s.provider} ${C.dim(
+                  `${s.failures} failures${s.coolingDown ? ` · cooling down (${Math.ceil(s.coolsDownInMs / 1000)}s left)` : ''}`
+                )}`
+              ),
+              { title: 'failover status' }
+            ) +
+            '\n'
+        );
+      }
       continue;
     }
 
@@ -358,14 +565,19 @@ async function main() {
     messages.push({ role: 'user', content: input });
     // A configured gateway holds the provider keys server-side (that's the
     // whole point of the deployment); without one, call providers directly
-    // from the phone, which still works for the keyless providers.
+    // from the phone, which still works for the keyless providers. Local
+    // calls walk the failover chain: the chosen model first, then the rest
+    // of the catalogue when it fails.
     const completeFn = cfg.gateway
       ? () => completeViaGateway(cfg.gateway, model, messages)
-      : () => complete(model, messages);
+      : () => runFailoverTurn(model, models, messages, tracker, (m) => complete(m, messages));
     await turn(model, messages, rl, root, completeFn);
+    await persist();
     console.log('');
   }
 
+  await persist();
+  await saveHistory(rl);
   rl.close();
 }
 
