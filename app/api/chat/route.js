@@ -73,7 +73,7 @@ function clampReply(reply) {
     name: String(c.name ?? '').slice(0, 100),
     args: JSON.parse(JSON.stringify(c.args ?? {}).slice(0, 16_384)),
   }));
-  return { ok: true, text, toolCalls, truncated: text !== reply.text };
+  return { ok: true, text, toolCalls, truncated: text !== reply.text, refused: reply.refused === true };
 }
 
 export async function POST(req) {

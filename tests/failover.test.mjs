@@ -166,6 +166,99 @@ describe('completeWithFailover()', () => {
   });
 });
 
+describe('completeWithFailover() — refusal handling', () => {
+  const REFUSAL = "I'm sorry, but I can't help with that request.";
+  const replyFor = (model) => ({ text: `from ${model.id}`, toolCalls: [], assistantMessage: { role: 'assistant', content: 'x' } });
+
+  it('skips a refusal and surfaces the next provider\'s real answer', async () => {
+    const models = [M('refuser', 'kilo', 'none'), M('helper', 'llm7', 'none')];
+    const { model, reply, attempts } = await completeWithFailover(models, [], async (m) =>
+      m.id === 'refuser' ? { text: REFUSAL, toolCalls: [], assistantMessage: { role: 'assistant', content: REFUSAL } } : replyFor(m)
+    );
+    assert.equal(model.id, 'helper');
+    assert.equal(reply.text, 'from helper');
+    assert.equal(attempts.length, 2);
+    assert.equal(attempts[0].ok, false);
+    assert.match(attempts[0].error, /^refused: /);
+    assert.equal(attempts[1].ok, true);
+  });
+
+  it('counts a refusal against the circuit breaker like any failure', async () => {
+    const tr = new FailureTracker();
+    const models = [M('refuser', 'kilo', 'none'), M('helper', 'llm7', 'none')];
+    await completeWithFailover(models, [], async (m) =>
+      m.id === 'refuser' ? { text: REFUSAL, toolCalls: [], assistantMessage: {} } : replyFor(m), tr);
+    assert.equal(tr.failures('kilo'), 1);
+    assert.equal(tr.failures('llm7'), 0);
+  });
+
+  it('surfaces the last refusal when every candidate refuses', async () => {
+    const models = [M('r1', 'kilo', 'none'), M('r2', 'llm7', 'none')];
+    const texts = { r1: REFUSAL, r2: 'As an AI, I cannot assist with that.' };
+    const { model, reply, attempts } = await completeWithFailover(models, [], async (m) => ({
+      text: texts[m.id], toolCalls: [], assistantMessage: { role: 'assistant', content: texts[m.id] },
+    }));
+    assert.equal(model.id, 'r2');
+    assert.equal(reply.text, texts.r2);
+    assert.equal(attempts.length, 2);
+    assert.ok(attempts.every((a) => !a.ok));
+  });
+
+  it('still throws FailoverError when refusals mix with transport failures', async () => {
+    const models = [M('refuser', 'kilo', 'none'), M('down', 'llm7', 'none')];
+    try {
+      await completeWithFailover(models, [], async (m) => {
+        if (m.id === 'refuser') return { text: REFUSAL, toolCalls: [], assistantMessage: {} };
+        throw new Error('llm7 502');
+      });
+      assert.fail('should have thrown');
+    } catch (err) {
+      assert.ok(err instanceof FailoverError);
+      assert.equal(err.attempts.length, 2);
+      assert.match(err.attempts[0].error, /^refused: /);
+      assert.match(err.attempts[1].error, /llm7 502/);
+    }
+  });
+
+  it('skips a reply flagged refused even when its text looks innocent', async () => {
+    const models = [M('flagged', 'kilo', 'none'), M('helper', 'llm7', 'none')];
+    const { model, attempts } = await completeWithFailover(models, [], async (m) =>
+      m.id === 'flagged'
+        ? { text: 'Anthropic declined this request.', toolCalls: [], refused: true, assistantMessage: {} }
+        : replyFor(m));
+    assert.equal(model.id, 'helper');
+    assert.equal(attempts[0].ok, false);
+  });
+
+  it('does not skip a working reply that carries tool calls', async () => {
+    const models = [M('worker', 'kilo', 'none'), M('backup', 'llm7', 'none')];
+    let calls = 0;
+    const { model, attempts } = await completeWithFailover(models, [], async (m) => {
+      calls++;
+      return {
+        text: "I can't edit that file directly, but I'll run the change through the shell.",
+        toolCalls: [{ id: '1', name: 'bash', args: { command: 'true' } }],
+        assistantMessage: { role: 'assistant', content: 'x' },
+      };
+    });
+    assert.equal(calls, 1);
+    assert.equal(model.id, 'worker');
+    assert.equal(attempts.length, 1);
+    assert.equal(attempts[0].ok, true);
+  });
+
+  it('does not skip an answer that merely says sorry in passing', async () => {
+    const models = [M('a', 'kilo', 'none'), M('b', 'llm7', 'none')];
+    let calls = 0;
+    const { attempts } = await completeWithFailover(models, [], async () => {
+      calls++;
+      return { text: 'Fixed. Sorry about the earlier confusion — the bug was in parse().', toolCalls: [], assistantMessage: {} };
+    });
+    assert.equal(calls, 1);
+    assert.equal(attempts[0].ok, true);
+  });
+});
+
 describe('formatAttempts()', () => {
   it('renders one honest line per attempt', () => {
     const lines = formatAttempts([
