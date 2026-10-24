@@ -16,7 +16,7 @@ import process from 'node:process';
 import { runTool } from '../lib/tools.mjs';
 import { complete, appendToolResult, SYSTEM_PROMPT, sendToErrorInbox } from '../lib/agent.mjs';
 import { listModels, directModels } from '../lib/models.mjs';
-import { FailureTracker, completeWithFailover, FailoverError, formatAttempts, isUncensoredModel } from '../lib/failover.mjs';
+import { FailureTracker, completeWithFailover, FailoverError, formatAttempts, isUncensoredModel, renderError } from '../lib/failover.mjs';
 import { SessionStore, deriveTitle } from '../lib/sessions.mjs';
 import { C, box, banner, toolHeader, toolResult, spinner, pick, wrap, width } from '../lib/tui.mjs';
 
@@ -210,7 +210,7 @@ async function completeViaGateway(gateway, model, messages, gatewayToken) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.error) {
-    throw new Error(data.error || `Gateway returned HTTP ${res.status}.`);
+    throw new Error(data.error ? renderError(data.error) : `Gateway returned HTTP ${res.status}.`);
   }
   return data;
 }
