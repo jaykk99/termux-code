@@ -16,7 +16,7 @@ import process from 'node:process';
 import { runTool } from '../lib/tools.mjs';
 import { complete, appendToolResult, SYSTEM_PROMPT, sendToErrorInbox } from '../lib/agent.mjs';
 import { listModels, directModels } from '../lib/models.mjs';
-import { FailureTracker, completeWithFailover, FailoverError, formatAttempts } from '../lib/failover.mjs';
+import { FailureTracker, completeWithFailover, FailoverError, formatAttempts, isUncensoredModel } from '../lib/failover.mjs';
 import { SessionStore, deriveTitle } from '../lib/sessions.mjs';
 import { C, box, banner, toolHeader, toolResult, spinner, pick, wrap, width } from '../lib/tui.mjs';
 
@@ -319,6 +319,11 @@ async function main() {
 
   let model =
     models.find((m) => m.id === cfg.modelId && m.source === cfg.modelSource) ||
+    // Default pick: an uncensored tool-capable model when one is in the
+    // catalogue (e.g. Venice uncensored behind a gateway key), else the
+    // first free tool-capable model, as before. A saved /model choice
+    // (cfg.modelId) always wins over both.
+    models.find((m) => isUncensoredModel(m) && (m.auth === 'bearer' || m.auth === 'none')) ||
     models.find((m) => m.free && !NO_TOOLS.has(m.provider)) ||
     models[0];
 
@@ -591,11 +596,15 @@ async function main() {
     messages.push({ role: 'user', content: input });
     // A configured gateway holds the provider keys server-side (that's the
     // whole point of the deployment); without one, call providers directly
-    // from the phone, which still works for the keyless providers. Local
-    // calls walk the failover chain: the chosen model first, then the rest
-    // of the catalogue when it fails.
+    // from the phone, which still works for the keyless providers. BOTH
+    // modes walk the failover chain: the chosen model first, then the rest
+    // of the catalogue when it fails OR refuses (a refusal counts as a
+    // failed attempt — see lib/refusal.mjs). Gateway mode used to call the
+    // chosen model once, directly, so a refusal there reached the screen
+    // verbatim with the chain unwalked; now the only difference between
+    // the modes is where the provider call happens.
     const completeFn = cfg.gateway
-      ? () => completeViaGateway(cfg.gateway, model, messages, cfg.gatewayToken)
+      ? () => runFailoverTurn(model, models, messages, tracker, (m) => completeViaGateway(cfg.gateway, m, messages, cfg.gatewayToken))
       : () => runFailoverTurn(model, models, messages, tracker, (m) => complete(m, messages));
     await turn(model, messages, rl, root, completeFn);
     await persist();

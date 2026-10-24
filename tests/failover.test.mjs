@@ -76,6 +76,36 @@ describe('buildFailoverPlan()', () => {
     assert.ok(ids.indexOf('horde-x') > ids.indexOf('groq-x'));
   });
 
+  it('tries uncensored-lineage models before every aligned model', () => {
+    const models = [
+      M('kilo-x', 'kilo', 'none', true),
+      M('gpt-4o-mini', 'githubmodels', 'bearer'),
+      M('0bserverx/Qwen3.8-27B-Heretic-Abliterated-Uncensored-GGUF', 'hf', 'hf', true),
+      M('venice-uncensored-1-2', 'venice', 'bearer'),
+      M('gemini-x', 'gemini', 'gemini'),
+    ];
+    const ids = buildFailoverPlan(models).map((m) => m.id);
+    // Venice uncensored (tool-capable) leads, the HF Heretic pool next,
+    // and only then the aligned pool in its usual order.
+    assert.equal(ids[0], 'venice-uncensored-1-2');
+    assert.equal(ids[1], '0bserverx/Qwen3.8-27B-Heretic-Abliterated-Uncensored-GGUF');
+    assert.ok(ids.indexOf('kilo-x') > ids.indexOf(ids[1]));
+    assert.ok(ids.indexOf('gpt-4o-mini') > ids.indexOf('kilo-x') || ids.indexOf('gpt-4o-mini') > 1);
+    assert.equal(ids[ids.length - 1], 'gemini-x');
+  });
+
+  it('an aligned model on the Venice provider does not get the uncensored rank', () => {
+    const models = [
+      M('glm-5.2', 'venice', 'bearer'),
+      M('DavidAU/Llama-3.2-8X3B-MOE-Dark-Champion-Instruct-uncensored-abliterated-18.4B-GGUF', 'hf', 'hf', true),
+      M('kilo-x', 'kilo', 'none', true),
+    ];
+    const ids = buildFailoverPlan(models).map((m) => m.id);
+    assert.equal(ids[0], 'DavidAU/Llama-3.2-8X3B-MOE-Dark-Champion-Instruct-uncensored-abliterated-18.4B-GGUF');
+    assert.ok(ids.indexOf('glm-5.2') > 0);
+    assert.ok(ids.indexOf('kilo-x') > 0);
+  });
+
   it('demotes providers in cooldown to the back of their tier', () => {
     let t = 0;
     const tr = new FailureTracker({ now: () => t, cooldownMs: 60000 });

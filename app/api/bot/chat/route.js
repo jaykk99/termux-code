@@ -81,28 +81,33 @@ const completeFn = (model, messages) =>
   complete(model, messages, process.env, serverToolsForOpenAI(), { baseTools: false });
 
 /**
- * Primary first, honestly: one direct attempt on the default model (the
- * first `hf` candidate — Jay's first uncensored pool pick), then the
- * failover chain over everything else.
+ * Preferred model first, honestly: one direct attempt on `preferred`,
+ * then the failover chain over everything else. A refusal from the
+ * preferred model counts as a failed attempt, never as the answer, so a
+ * refusal only reaches the user when the whole chain refused (in which
+ * case completeWithFailover returns the last refusal as the reply).
+ *
+ * Used for EVERY turn of the conversation, including the follow-up
+ * completions after tool results: those used to call the winning model
+ * directly, so a model that answered the first turn and refused the
+ * follow-up surfaced its refusal verbatim with the chain unwalked.
  */
-async function firstTurn(candidates, messages) {
-  const attempts = [];
-  const primary = candidates.find((m) => m.provider === 'hf');
-  const rest = candidates.filter((m) => m !== primary);
-  if (primary) {
+async function turnWithFailover(candidates, messages, preferred, attempts) {
+  const rest = candidates.filter((m) => m !== preferred);
+  if (preferred) {
     const started = Date.now();
     try {
-      const reply = await completeFn(primary, messages);
+      const reply = await completeFn(preferred, messages);
       if (!isRefusalReply(reply)) {
-        attempts.push(makeAttempt({ provider: primary.provider, modelId: primary.id, ok: true, latencyMs: Date.now() - started }));
-        return { model: primary, reply, attempts };
+        attempts.push(makeAttempt({ provider: preferred.provider, modelId: preferred.id, ok: true, latencyMs: Date.now() - started }));
+        return { model: preferred, reply };
       }
       attempts.push(
-        makeAttempt({ provider: primary.provider, modelId: primary.id, ok: false, latencyMs: Date.now() - started, error: 'refused' })
+        makeAttempt({ provider: preferred.provider, modelId: preferred.id, ok: false, latencyMs: Date.now() - started, error: 'refused' })
       );
     } catch (err) {
       attempts.push(
-        makeAttempt({ provider: primary.provider, modelId: primary.id, ok: false, latencyMs: Date.now() - started, error: err?.message })
+        makeAttempt({ provider: preferred.provider, modelId: preferred.id, ok: false, latencyMs: Date.now() - started, error: err?.message })
       );
     }
   }
@@ -111,7 +116,19 @@ async function firstTurn(candidates, messages) {
     throw new Error(last?.error || 'No models are available.');
   }
   const out = await completeWithFailover(rest, messages, completeFn, tracker);
-  return { model: out.model, reply: out.reply, attempts: [...attempts, ...out.attempts] };
+  attempts.push(...out.attempts);
+  return { model: out.model, reply: out.reply };
+}
+
+/**
+ * First turn: the default model (the first `hf` candidate — Jay's first
+ * uncensored pool pick) is preferred, the chain stands behind it.
+ */
+async function firstTurn(candidates, messages) {
+  const attempts = [];
+  const primary = candidates.find((m) => m.provider === 'hf');
+  const { model, reply } = await turnWithFailover(candidates, messages, primary, attempts);
+  return { model, reply, attempts };
 }
 
 export async function POST(req) {
@@ -165,7 +182,12 @@ export async function POST(req) {
         steps.push({ tool: call.name, args: summarizeArgs(call.name, call.args), result: result.slice(0, 2000) });
         appendToolResult(convo, model, call, result);
       }
-      reply = await completeFn(model, convo);
+      // Follow-up turns go through the same refusal-skip as the first:
+      // the current model is preferred, the rest of the chain stands
+      // behind it, and a refusal here walks the chain instead of
+      // surfacing. The winning model may switch mid-conversation; tool
+      // results already in `convo` stay as they were appended.
+      ({ model, reply } = await turnWithFailover(candidates, convo, model, attempts));
       if (reply.toolCalls?.length) convo.push(reply.assistantMessage);
     }
     await audit(
