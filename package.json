@@ -17,10 +17,10 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "build:cf": "opennextjs-cloudflare build",
+    "build:cf": "node scripts/patch-next-node-crypto.mjs && opennextjs-cloudflare build",
     "start": "next start",
     "cli": "node ./bin/termux-code.mjs",
-    "test": "node --test tests/http.test.mjs tests/models.test.mjs tests/failover.test.mjs tests/refusal.test.mjs tests/sessions.test.mjs tests/hf.test.mjs tests/auth.test.mjs tests/server-tools.test.mjs tests/gate.test.mjs"
+    "test": "node --test tests/http.test.mjs tests/models.test.mjs tests/failover.test.mjs tests/refusal.test.mjs tests/sessions.test.mjs tests/hf.test.mjs tests/auth.test.mjs tests/server-tools.test.mjs tests/gate.test.mjs tests/patch-next-node-crypto.test.mjs"
   },
   "dependencies": {
     "next": "^15.0.0",
