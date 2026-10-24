@@ -71,7 +71,7 @@ export async function GET(req) {
     return fail(req, `This app is private. GitHub account "${user.login}" is not the owner.`, 403);
   }
 
-  const headers = new Headers({ Location: '/chat' });
+  const headers = new Headers({ Location: '/' });
   headers.append('Set-Cookie', sessionCookieHeader(createSession(user.login), { secure }));
   headers.append('Set-Cookie', clearCookieHeader(STATE_COOKIE, { secure }));
   logRequest(req, 302, Date.now() - started, `login=${user.login}`);

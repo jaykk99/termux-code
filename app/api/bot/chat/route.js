@@ -14,7 +14,6 @@ import {
   summarizeArgs,
   SERVER_TOOL_NAMES,
 } from '../../../../lib/server-tools.mjs';
-import { skillIndex } from '../../../../lib/skills.mjs';
 import { audit } from '../../../../lib/audit.mjs';
 
 export const runtime = 'nodejs';
@@ -31,10 +30,9 @@ export const maxDuration = 120;
  * (HF_MODEL, default 0bserverx/Qwen3.8-27B-Heretic-Abliterated-Uncensored
  * -GGUF). If it errors or refuses, the repo's failover chain walks the
  * other available models — the rest of the uncensored HF list in pool
- * order, then everything else, Venice included when its key is set — and
- * the attempts log in the response says honestly which model answered.
- * Tool calls execute server-side via lib/server-tools.mjs and every one
- * is audit-logged.
+ * order, then everything else in the EI pool — and the attempts log in
+ * the response says honestly which model answered. Tool calls execute
+ * server-side via lib/server-tools.mjs and every one is audit-logged.
  */
 
 const MAX_MESSAGES = 60;
@@ -61,19 +59,14 @@ function sanitizeMessages(messages) {
 }
 
 async function systemPrompt() {
-  const index = await skillIndex().catch(() => '');
   return [
-    "You are the termux-code hosted chatbot, working for Jay (GitHub: jaykk99). You run server-side with tools:",
+    "You are the termux-code hosted agent, working for Jay (GitHub: jaykk99). You run server-side with tools:",
     '- github_api: the GitHub API as Jay (reads and writes on his repos).',
-    '- venice_api: the Venice AI API with the server key (images, audio, embeddings, billing, models, chat).',
+    "- composio_search / composio_execute: Jay's connected apps through his Composio workspace (Gmail, Google Calendar, Facebook, Outlook and more). Always composio_search for the right tool slug first, then composio_execute it — never guess a slug. GitHub actions through Composio need the connection's connected_account_id (and its account name) or they fail silently.",
     '- run_terminal: a shell in a sandbox directory on this server (no provider keys in its environment).',
     '- fetch_url / web_search: read pages and search the web.',
-    '- list_skills / read_skill: Venice API skills — step-by-step instructions for each Venice surface.',
     '',
-    'Venice skills available (load one with read_skill BEFORE using venice_api for that surface):',
-    index || '(none installed)',
-    '',
-    'Rules: never print or ask for API keys or tokens. Prefer reading a skill over guessing an API shape. Keep answers tight and say plainly what you did.',
+    'Rules: never print or ask for API keys or tokens. Keep answers tight and say plainly what you did.',
   ].join('\n');
 }
 
@@ -161,7 +154,7 @@ export async function POST(req) {
       for (const call of reply.toolCalls) {
         const result = SERVER_TOOL_NAMES.has(call.name)
           ? await runServerTool(call.name, call.args, { login: session.login })
-          : `Tool "${call.name}" is not available in the web chatbot.`;
+          : `Tool "${call.name}" is not available in the hosted agent.`;
         steps.push({ tool: call.name, args: summarizeArgs(call.name, call.args), result: result.slice(0, 2000) });
         appendToolResult(convo, model, call, result);
       }
