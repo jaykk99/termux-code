@@ -10,6 +10,8 @@ import {
   completeWithFailover,
   FailoverError,
   formatAttempts,
+  makeAttempt,
+  renderError,
   FAILURES_TO_TRIP,
 } from '../lib/failover.mjs';
 
@@ -360,5 +362,85 @@ describe('formatAttempts()', () => {
     ]);
     assert.match(lines[0], /\[fail\] groq\/x 12ms — 429 rate limited/);
     assert.match(lines[1], /\[ok\] kilo\/y 900ms/);
+  });
+});
+
+describe('renderError() — no more "[object Object]"', () => {
+  it('passes strings through unchanged', () => {
+    assert.equal(renderError('kilo 429'), 'kilo 429');
+  });
+
+  it('renders Errors via their message', () => {
+    assert.equal(renderError(new Error('fetch failed')), 'fetch failed');
+  });
+
+  it('renders a plain object error as JSON, not "[object Object]"', () => {
+    const out = renderError({ error: { message: 'model overloaded', code: 503 } });
+    assert.doesNotMatch(out, /\[object Object\]/);
+    assert.match(out, /model overloaded/);
+    assert.match(out, /503/);
+  });
+
+  it('renders an Error whose message was clobbered with an object', () => {
+    const err = new Error('placeholder');
+    err.message = { status: 401, detail: 'bad gateway key' };
+    const out = renderError(err);
+    assert.doesNotMatch(out, /\[object Object\]/);
+    assert.match(out, /bad gateway key/);
+  });
+
+  it('renders null/undefined as empty, and never throws on circular objects', () => {
+    assert.equal(renderError(null), '');
+    assert.equal(renderError(undefined), '');
+    const circ = {};
+    circ.self = circ;
+    assert.equal(typeof renderError(circ), 'string');
+  });
+
+  it('makeAttempt truncates a long object error to 300 chars', () => {
+    const big = { detail: 'x'.repeat(500) };
+    const a = makeAttempt({ provider: 'kilo', modelId: 'm', ok: false, latencyMs: 100, error: big });
+    assert.equal(a.error.length, 300);
+    assert.doesNotMatch(a.error, /\[object Object\]/);
+  });
+
+  it('makeAttempt keeps a string error and a null error as before', () => {
+    assert.equal(
+      makeAttempt({ provider: 'kilo', modelId: 'm', ok: false, latencyMs: 1, error: 'down' }).error,
+      'down'
+    );
+    assert.equal(
+      makeAttempt({ provider: 'kilo', modelId: 'm', ok: false, latencyMs: 1, error: null }).error,
+      null
+    );
+  });
+
+  it('completeWithFailover surfaces a thrown plain object readably', async () => {
+    const models = [M('a', 'kilo', 'none')];
+    try {
+      await completeWithFailover(models, [], async () => {
+        throw { status: 401, body: 'keyless endpoint rejected' };
+      });
+      assert.fail('should have thrown');
+    } catch (err) {
+      assert.ok(err instanceof FailoverError);
+      assert.doesNotMatch(err.attempts[0].error, /\[object Object\]/);
+      assert.match(err.attempts[0].error, /keyless endpoint rejected/);
+      assert.doesNotMatch(err.message, /\[object Object\]/);
+      assert.match(err.message, /keyless endpoint rejected/);
+    }
+  });
+
+  it('formatAttempts prints an object-error attempt as readable text', () => {
+    const a = makeAttempt({
+      provider: 'horde',
+      modelId: 'any',
+      ok: false,
+      latencyMs: 69,
+      error: { error: 'queue rejected the job' },
+    });
+    const lines = formatAttempts([a]);
+    assert.doesNotMatch(lines[0], /\[object Object\]/);
+    assert.match(lines[0], /queue rejected the job/);
   });
 });
