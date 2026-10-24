@@ -11,7 +11,7 @@
     "build": "next build",
     "start": "next start",
     "cli": "node ./bin/termux-code.mjs",
-    "test": "node --test tests/http.test.mjs tests/models.test.mjs tests/failover.test.mjs tests/refusal.test.mjs tests/sessions.test.mjs"
+    "test": "node --test tests/http.test.mjs tests/models.test.mjs tests/failover.test.mjs tests/refusal.test.mjs tests/sessions.test.mjs tests/venice.test.mjs tests/auth.test.mjs tests/skills.test.mjs tests/server-tools.test.mjs tests/gate.test.mjs"
   },
   "dependencies": {
     "next": "^15.0.0",

@@ -1,6 +1,7 @@
 import { complete } from '../../../lib/agent.mjs';
 import { resolveModel } from '../../../lib/models.mjs';
 import { readJSON, bad, upstreamError, logRequest } from '../../../lib/http.mjs';
+import { gatewayAccess } from '../../../lib/auth.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -78,6 +79,14 @@ function clampReply(reply) {
 
 export async function POST(req) {
   const started = Date.now();
+  // Owner-gated: a browser session cookie or the phone's gateway token.
+  // Anonymous completions are refused — the keys behind this route are the
+  // owner's, so the route is too. The CLI sends its token as a bearer.
+  if (!(await gatewayAccess(req))) {
+    const res = bad('NO_KEY', 'Sign in or a gateway token is required.', 401);
+    logRequest(req, 401, Date.now() - started);
+    return res;
+  }
   let body;
   try {
     body = await readJSON(req);

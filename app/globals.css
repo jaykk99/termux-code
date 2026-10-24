@@ -424,3 +424,88 @@ a {
     flex: 1;
   }
 }
+
+/* ---------- hosted chatbot (sign-in gate + /chat) ---------- */
+
+.signin {
+  display: inline-block;
+  border: 1px solid #7ee787;
+  color: #7ee787;
+  border-radius: 6px;
+  padding: 0.55rem 1.1rem;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.signin:hover {
+  background: rgba(126, 231, 135, 0.12);
+}
+
+.signout {
+  background: none;
+  border: 1px solid #484f58;
+  color: inherit;
+  border-radius: 6px;
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+  margin-top: 1rem;
+}
+
+.chatbox {
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 0.9rem;
+  min-height: 220px;
+  max-height: 55vh;
+  overflow-y: auto;
+  margin-bottom: 0.75rem;
+}
+
+.msg {
+  margin-bottom: 0.7rem;
+  line-height: 1.45;
+}
+
+.msgrole {
+  display: inline-block;
+  min-width: 2.4rem;
+  font-weight: 700;
+  opacity: 0.75;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+}
+
+.msg.user .msgrole {
+  color: #7ee787;
+}
+
+.composer {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.composer input {
+  flex: 1;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  color: inherit;
+  padding: 0.55rem 0.7rem;
+}
+
+.composer button,
+.block button {
+  background: #21262d;
+  border: 1px solid #30363d;
+  color: inherit;
+  border-radius: 6px;
+  padding: 0.5rem 0.95rem;
+  cursor: pointer;
+}
+
+.composer button:disabled,
+.block button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

@@ -4,3 +4,6 @@ node_modules/
 .env
 .env.local
 *.log
+# Hosted-app runtime state: gateway token store, audit log, terminal sandbox
+.data/
+.sandbox/

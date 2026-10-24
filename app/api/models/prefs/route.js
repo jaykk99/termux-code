@@ -1,5 +1,6 @@
 import { setErrorInboxPrefs } from '../../../../lib/models.mjs';
 import { readJSON, bad, upstreamError, logRequest } from '../../../../lib/http.mjs';
+import { gatewayAccess } from '../../../../lib/auth.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,6 +12,11 @@ export const dynamic = 'force-dynamic';
  */
 export async function POST(req) {
   const started = Date.now();
+  if (!(await gatewayAccess(req))) {
+    const res = bad('NO_KEY', 'Sign in or a gateway token is required.', 401);
+    logRequest(req, 401, Date.now() - started);
+    return res;
+  }
   let body;
   try {
     body = await readJSON(req);

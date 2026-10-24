@@ -50,10 +50,18 @@ async function saveConfig(cfg) {
  * API keys live in Vercel's env, not in plain text on your phone. Falls back
  * to local discovery, then to whatever needs no key at all.
  */
+/** The gateway is owner-gated: the phone authenticates with the gateway
+ * token minted on the deployment's /chat page after GitHub sign-in. */
+function gatewayHeaders(cfg) {
+  return cfg?.gatewayToken ? { Authorization: `Bearer ${cfg.gatewayToken}` } : {};
+}
+
 async function loadCatalogue(cfg) {
   if (cfg.gateway) {
     try {
-      const res = await fetch(cfg.gateway.replace(/\/$/, '') + '/api/models');
+      const res = await fetch(cfg.gateway.replace(/\/$/, '') + '/api/models', {
+        headers: gatewayHeaders(cfg),
+      });
       if (res.ok) {
         const data = await res.json();
         if (data.models?.length) return data.models;
@@ -191,10 +199,13 @@ async function chooseModel(models, current, rl) {
  * (Vercel env); only this phone runs the tools. Returns the gateway's reply
  * in the same shape local complete() returns: { text, toolCalls, assistantMessage }.
  */
-async function completeViaGateway(gateway, model, messages) {
+async function completeViaGateway(gateway, model, messages, gatewayToken) {
   const res = await fetch(gateway.replace(/\/$/, '') + '/api/chat', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(gatewayToken ? { Authorization: `Bearer ${gatewayToken}` } : {}),
+    },
     body: JSON.stringify({ model, messages }),
   });
   const data = await res.json().catch(() => ({}));
@@ -286,6 +297,7 @@ const HELP = [
   ['/ask <msg>', 'message your Error Inbox agent instead (no file access)'],
   ['/inbox-key <t>', 'save the eibx_... token /ask uses'],
   ['/gateway <url>', 'point at a different deployment'],
+  ['/gateway-token <t>', 'save the gateway token minted on the deployment\u2019s /chat page'],
   ['/sessions', 'list saved conversation sessions'],
   ['/session <n>', 'resume a session by number or id'],
   ['/new', 'start a new session'],
@@ -420,6 +432,20 @@ async function main() {
         spin.stop();
         console.log('\n' + box(wrap(err.message, width() - 6), { title: C.red('error'), colour: C.red }) + '\n');
       }
+      continue;
+    }
+
+    if (input.startsWith('/gateway-token')) {
+      const token = input.slice(14).trim();
+      if (!token) {
+        console.log(
+          C.dim('  ' + (cfg.gatewayToken ? 'A gateway token is set.' : 'No gateway token set. Mint one on the deployment\u2019s /chat page after signing in.')) + '\n'
+        );
+        continue;
+      }
+      cfg.gatewayToken = token;
+      await saveConfig(cfg);
+      console.log(C.dim('  Saved. The gateway will now accept this phone as you.\n'));
       continue;
     }
 
@@ -569,7 +595,7 @@ async function main() {
     // calls walk the failover chain: the chosen model first, then the rest
     // of the catalogue when it fails.
     const completeFn = cfg.gateway
-      ? () => completeViaGateway(cfg.gateway, model, messages)
+      ? () => completeViaGateway(cfg.gateway, model, messages, cfg.gatewayToken)
       : () => runFailoverTurn(model, models, messages, tracker, (m) => complete(m, messages));
     await turn(model, messages, rl, root, completeFn);
     await persist();

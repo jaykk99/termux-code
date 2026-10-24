@@ -61,12 +61,19 @@ chmod +x "$BIN_DIR/termux-code"
 
 if [ ! -f "$CONFIG" ]; then
   DEFAULT_GATEWAY="${TERMUX_CODE_GATEWAY:-}"
+  DEFAULT_TOKEN="${TERMUX_CODE_TOKEN:-}"
   if [ -t 0 ] && [ -z "$DEFAULT_GATEWAY" ]; then
     printf '\033[38;5;179m›\033[0m Deployment URL that holds your keys (enter to skip): '
     read -r DEFAULT_GATEWAY </dev/tty || DEFAULT_GATEWAY=""
   fi
   if [ -n "$DEFAULT_GATEWAY" ]; then
-    printf '{\n  "gateway": "%s"\n}\n' "$DEFAULT_GATEWAY" > "$CONFIG"
+    # The deployment is owner-gated: the gateway token (minted on its /chat
+    # page after GitHub sign-in) is what lets this phone in as the owner.
+    if [ -n "$DEFAULT_TOKEN" ]; then
+      printf '{\n  "gateway": "%s",\n  "gatewayToken": "%s"\n}\n' "$DEFAULT_GATEWAY" "$DEFAULT_TOKEN" > "$CONFIG"
+    else
+      printf '{\n  "gateway": "%s"\n}\n' "$DEFAULT_GATEWAY" > "$CONFIG"
+    fi
     say "Saved gateway to $CONFIG"
   else
     printf '{}\n' > "$CONFIG"
