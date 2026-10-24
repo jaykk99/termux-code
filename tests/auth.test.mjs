@@ -243,3 +243,29 @@ describe('gateway tokens on a KV store (Cloudflare runtime)', () => {
     await assert.rejects(issueGatewayToken('jaykk99', { ...ENV, GATEWAY_KV: brokenKv }));
   });
 });
+
+describe('worker startup safety (1101 guard)', () => {
+  it('lib/auth.mjs has no static node:fs/node:path import', async () => {
+    // The shared auth module is imported by the root page and every
+    // auth/chat route, so a static Node filesystem import in it lands
+    // in every route bundle's startup path. The filesystem store must
+    // stay behind the dynamic import in lib/token-store-fs.mjs.
+    const src = await fs.readFile(new URL('../lib/auth.mjs', import.meta.url), 'utf8');
+    const staticImports = [...src.matchAll(/^import\s+.*\s+from\s+['"]([^'"]+)['"]/gm)].map(
+      (m) => m[1]
+    );
+    assert.ok(!staticImports.includes('node:fs'), 'auth.mjs must not statically import node:fs');
+    assert.ok(!staticImports.includes('node:path'), 'auth.mjs must not statically import node:path');
+    assert.ok(
+      src.includes("await import('./token-store-fs.mjs')"),
+      'the filesystem store must load via dynamic import'
+    );
+  });
+
+  it('the filesystem store still round-trips through the dynamic import', async () => {
+    const token = await issueGatewayToken('jaykk99', ENV);
+    assert.deepEqual(await verifyGatewayToken(token, ENV), { login: 'jaykk99' });
+    assert.equal((await listGatewayTokens('jaykk99', ENV)).length, 1);
+    assert.equal(await revokeGatewayTokens('jaykk99', ENV), 1);
+  });
+});

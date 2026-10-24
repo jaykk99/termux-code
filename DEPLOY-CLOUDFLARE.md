@@ -47,6 +47,35 @@ Project settings (Cloudflare API / dashboard, not wrangler):
   so the namespace + binding are a dashboard step (or a token with
   Workers KV Storage Edit), not a wrangler step.
 
+Git-built deployments and error 1101 — read this before debugging app code:
+
+- `nodejs_compat` is REQUIRED, not optional. Every route declares
+  `runtime = 'nodejs'`, and the OpenNext adapter itself imports Node
+  modules (`node:async_hooks`, `node:buffer`, `node:stream/web`,
+  `node:process`). A deployment that runs the worker without that flag
+  throws at worker startup, so EVERY route answers Cloudflare error
+  1101 ("Worker threw exception") — root, auth, and chat alike.
+- Incident 2026-10-24: every Git-built deployment since PR #6 built
+  "success" but 1101'd on all routes, while the manual deploy of PR #5
+  (d4bde2cc) kept working. The code delta between those builds
+  (041d9d1..b3e3e66) contained no startup-relevant change — no new
+  static imports, no dependency changes, comment-only adapter config —
+  so the cause is deployment configuration, not app code. If a
+  Git-built deployment 1101s again, check FIRST, in the dashboard:
+  Pages project `termux-code` → Settings → Functions → Compatibility
+  Flags for that deployment (must include `nodejs_compat`), and the
+  Git build settings (build command `npm run build:cf`, producing
+  `.open-next/`). Roll back to the last working deployment if it is
+  still broken after that check.
+- Hardening in the repo (same incident): the shared auth module
+  (`lib/auth.mjs`, imported by the root page and every auth/chat route)
+  no longer statically imports `node:fs`/`node:path`; the filesystem
+  token store lives in `lib/token-store-fs.mjs` and loads via dynamic
+  import, only on the Node/tests branch. The KV branch (the Cloudflare
+  path) never touches it. `node:crypto` stays static — sessions are
+  synchronous and WebCrypto is async-only — so `nodejs_compat` is
+  still required regardless of this change.
+
 Known runtime differences on Cloudflare:
 
 - `run_terminal` returns an explicit "unavailable on this runtime" message:
