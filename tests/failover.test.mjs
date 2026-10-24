@@ -81,22 +81,22 @@ describe('buildFailoverPlan()', () => {
       M('kilo-x', 'kilo', 'none', true),
       M('gpt-4o-mini', 'githubmodels', 'bearer'),
       M('0bserverx/Qwen3.8-27B-Heretic-Abliterated-Uncensored-GGUF', 'hf', 'hf', true),
-      M('venice-uncensored-1-2', 'venice', 'bearer'),
+      M('gateway-uncensored-1', 'gatewayx', 'bearer'),
       M('gemini-x', 'gemini', 'gemini'),
     ];
     const ids = buildFailoverPlan(models).map((m) => m.id);
-    // Venice uncensored (tool-capable) leads, the HF Heretic pool next,
-    // and only then the aligned pool in its usual order.
-    assert.equal(ids[0], 'venice-uncensored-1-2');
+    // A keyed uncensored-marked model (tool-capable) leads, the HF
+    // Heretic pool next, and only then the aligned pool in its order.
+    assert.equal(ids[0], 'gateway-uncensored-1');
     assert.equal(ids[1], '0bserverx/Qwen3.8-27B-Heretic-Abliterated-Uncensored-GGUF');
     assert.ok(ids.indexOf('kilo-x') > ids.indexOf(ids[1]));
     assert.ok(ids.indexOf('gpt-4o-mini') > ids.indexOf('kilo-x') || ids.indexOf('gpt-4o-mini') > 1);
     assert.equal(ids[ids.length - 1], 'gemini-x');
   });
 
-  it('an aligned model on the Venice provider does not get the uncensored rank', () => {
+  it('an aligned model on a keyed gateway provider does not get the uncensored rank', () => {
     const models = [
-      M('glm-5.2', 'venice', 'bearer'),
+      M('glm-5.2', 'gatewayx', 'bearer'),
       M('DavidAU/Llama-3.2-8X3B-MOE-Dark-Champion-Instruct-uncensored-abliterated-18.4B-GGUF', 'hf', 'hf', true),
       M('kilo-x', 'kilo', 'none', true),
     ];

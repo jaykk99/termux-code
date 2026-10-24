@@ -320,7 +320,7 @@ async function main() {
   let model =
     models.find((m) => m.id === cfg.modelId && m.source === cfg.modelSource) ||
     // Default pick: an uncensored tool-capable model when one is in the
-    // catalogue (e.g. Venice uncensored behind a gateway key), else the
+    // catalogue (e.g. an uncensored HF build behind a gateway key), else the
     // first free tool-capable model, as before. A saved /model choice
     // (cfg.modelId) always wins over both.
     models.find((m) => isUncensoredModel(m) && (m.auth === 'bearer' || m.auth === 'none')) ||
