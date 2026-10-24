@@ -277,6 +277,69 @@ describe('completeWithFailover() — refusal handling', () => {
     assert.equal(attempts[0].ok, true);
   });
 
+  it('walks past a newly-caught refusal phrasing to the next provider', async () => {
+    const models = [M('refuser', 'kilo', 'none'), M('helper', 'llm7', 'none')];
+    const { model, reply, attempts } = await completeWithFailover(models, [], async (m) =>
+      m.id === 'refuser' ? { text: "I can't do this.", toolCalls: [], assistantMessage: {} } : replyFor(m));
+    assert.equal(model.id, 'helper');
+    assert.equal(reply.text, 'from helper');
+    assert.equal(attempts.length, 2);
+    assert.match(attempts[0].error, /^refused: /);
+  });
+
+  it('walks the whole chain when every model refuses in a different phrasing', async () => {
+    const models = [M('r1', 'kilo', 'none'), M('r2', 'llm7', 'none'), M('r3', 'horde', 'horde')];
+    const texts = { r1: 'I refuse to help with that.', r2: "That's not something I can help with.", r3: 'Unable to comply with this request.' };
+    const { model, reply, attempts } = await completeWithFailover(models, [], async (m) => ({
+      text: texts[m.id], toolCalls: [], assistantMessage: {},
+    }));
+    assert.equal(model.id, 'r3');
+    assert.equal(reply.text, texts.r3);
+    assert.equal(attempts.length, 3);
+    assert.ok(attempts.every((a) => !a.ok));
+  });
+
+  it('treats an empty reply as a failed attempt and walks on', async () => {
+    const models = [M('blank', 'kilo', 'none'), M('helper', 'llm7', 'none')];
+    const { model, reply, attempts } = await completeWithFailover(models, [], async (m) =>
+      m.id === 'blank' ? { text: '', toolCalls: [], assistantMessage: {} } : replyFor(m));
+    assert.equal(model.id, 'helper');
+    assert.equal(reply.text, 'from helper');
+    assert.equal(attempts[0].error, 'empty reply');
+  });
+
+  it('treats whitespace-only and missing text as failed attempts', async () => {
+    for (const text of ['   \n  ', undefined]) {
+      const models = [M('blank', 'kilo', 'none'), M('helper', 'llm7', 'none')];
+      const { model } = await completeWithFailover(models, [], async (m) =>
+        m.id === 'blank' ? { text, toolCalls: [], assistantMessage: {} } : replyFor(m));
+      assert.equal(model.id, 'helper');
+    }
+  });
+
+  it('does not treat a blank-text reply carrying tool calls as empty', async () => {
+    const models = [M('worker', 'kilo', 'none'), M('backup', 'llm7', 'none')];
+    let calls = 0;
+    const { model, attempts } = await completeWithFailover(models, [], async () => {
+      calls++;
+      return { text: '', toolCalls: [{ id: '1', name: 'bash', args: {} }], assistantMessage: {} };
+    });
+    assert.equal(calls, 1);
+    assert.equal(model.id, 'worker');
+    assert.equal(attempts[0].ok, true);
+  });
+
+  it('throws FailoverError with an honest log when every reply is blank', async () => {
+    const models = [M('a', 'kilo', 'none'), M('b', 'llm7', 'none')];
+    try {
+      await completeWithFailover(models, [], async () => ({ text: '', toolCalls: [], assistantMessage: {} }));
+      assert.fail('should have thrown');
+    } catch (err) {
+      assert.ok(err instanceof FailoverError);
+      assert.ok(err.attempts.every((a) => a.error === 'empty reply'));
+    }
+  });
+
   it('does not skip an answer that merely says sorry in passing', async () => {
     const models = [M('a', 'kilo', 'none'), M('b', 'llm7', 'none')];
     let calls = 0;
