@@ -27,6 +27,8 @@ Project settings (Cloudflare API / dashboard, not wrangler):
 
 - Production compatibility: date `2025-10-01`, flag `nodejs_compat`.
 - Production env vars: `VENICE_API_KEY` (secret), `VENICE_MODEL`,
+  `HF_MODEL` (the hosted chatbot's default model — the first uncensored
+  entry in Jay's Inbox Models pool, served via the `hf` provider),
   `OWNER_GITHUB_LOGIN`, `SESSION_SECRET` (secret), and — once the GitHub
   OAuth app exists — `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`
   (secret), `GITHUB_TOKEN` (secret). The OAuth callback is
