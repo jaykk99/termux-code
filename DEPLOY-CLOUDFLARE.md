@@ -26,9 +26,10 @@ files directly (the OpenNext worker cannot serve them itself on Pages).
 Project settings (Cloudflare API / dashboard, not wrangler):
 
 - Production compatibility: date `2025-10-01`, flag `nodejs_compat`.
-- Production env vars: `VENICE_API_KEY` (secret), `VENICE_MODEL`,
-  `HF_MODEL` (the hosted chatbot's default model — the first uncensored
-  entry in Jay's Inbox Models pool, served via the `hf` provider),
+- Production env vars: `HF_MODEL` (the hosted agent's default model — the
+  first uncensored entry in Jay's Inbox Models pool, served via the `hf`
+  provider), `COMPOSIO_API_KEY` (secret; the agent's Composio tools —
+  unset until a working key is pasted, the stored one returns 401),
   `OWNER_GITHUB_LOGIN`, `SESSION_SECRET` (secret), and — once the GitHub
   OAuth app exists — `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`
   (secret), `GITHUB_TOKEN` (secret). The OAuth callback is

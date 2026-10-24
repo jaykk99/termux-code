@@ -67,8 +67,8 @@ if [ ! -f "$CONFIG" ]; then
     read -r DEFAULT_GATEWAY </dev/tty || DEFAULT_GATEWAY=""
   fi
   if [ -n "$DEFAULT_GATEWAY" ]; then
-    # The deployment is owner-gated: the gateway token (minted on its /chat
-    # page after GitHub sign-in) is what lets this phone in as the owner.
+    # The deployment is owner-gated: the gateway token (minted on its
+    # landing page after GitHub sign-in) is what lets this phone in as the owner.
     if [ -n "$DEFAULT_TOKEN" ]; then
       printf '{\n  "gateway": "%s",\n  "gatewayToken": "%s"\n}\n' "$DEFAULT_GATEWAY" "$DEFAULT_TOKEN" > "$CONFIG"
     else

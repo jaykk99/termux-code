@@ -2,7 +2,7 @@ import './globals.css';
 
 export const metadata = {
   title: 'termux-code',
-  description: 'A coding agent that runs in Termux, with your own models behind it.',
+  description: 'A coding agent that runs in Termux. This site is the sign-in gate and the phone connect command.',
 };
 
 export default function RootLayout({ children }) {
@@ -14,7 +14,7 @@ export default function RootLayout({ children }) {
             <span className="caret">›</span>
             <h1>termux-code</h1>
             <nav>
-              <a href="/">home</a> <a href="/chat">chat</a> <a href="/console">console</a> <a href="/settings">settings</a>
+              <a href="/">connect</a>
             </nav>
           </header>
           {children}

@@ -1,14 +1,16 @@
 :root {
-  --bg: #141824;
-  --surface: #1b2130;
-  --surface-lift: #222939;
-  --line: #2b3348;
-  --text: #e2e7f0;
-  --dim: #7d88a1;
-  --amber: #e9a23b;
-  --sky: #77b6d6;
-  --rose: #d97a7a;
+  --bg: #0a0a0b;
+  --surface: #141416;
+  --surface-lift: #1d1d20;
+  --line: #2a2a2f;
+  --text: #f5f5f6;
+  --dim: #a7a7b0;
+  --red: #e5322d;
+  --red-dark: #c22420;
+  --red-soft: rgba(229, 50, 45, 0.12);
 
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas,
     "Liberation Mono", monospace;
 }
@@ -23,203 +25,292 @@ body {
   padding: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: var(--mono);
-  font-size: 15px;
+  font-family: var(--sans);
+  font-size: 17px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
 }
 
 a {
-  color: var(--sky);
-  text-decoration-color: var(--line);
+  color: var(--text);
+  text-decoration-color: var(--red);
   text-underline-offset: 3px;
 }
 
 .shell {
-  max-width: 46rem;
+  max-width: 44rem;
   margin: 0 auto;
-  padding: 2.5rem 1.25rem 5rem;
+  padding: 2rem 1.25rem 4rem;
 }
 
-/* The masthead doubles as the shell prompt — the product's own vernacular. */
+/* Masthead: red caret, product name, one link. Nothing else competes. */
 .masthead {
   display: flex;
-  align-items: baseline;
-  gap: 0.6rem;
-  margin-bottom: 2.75rem;
+  align-items: center;
+  gap: 0.55rem;
+  margin-bottom: 3rem;
 }
 
 .masthead .caret {
-  color: var(--amber);
+  color: var(--red);
+  font-family: var(--mono);
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .masthead h1 {
-  font-size: 1.05rem;
-  font-weight: 500;
+  font-size: 1.25rem;
+  font-weight: 700;
   margin: 0;
   letter-spacing: 0.01em;
 }
 
 .masthead nav {
   margin-left: auto;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
+}
+
+.masthead nav a {
+  color: var(--dim);
+  text-decoration: none;
+}
+
+.masthead nav a:hover {
+  color: var(--text);
 }
 
 .lede {
-  font-size: 1.55rem;
-  line-height: 1.35;
-  font-weight: 400;
-  margin: 0 0 1.25rem;
-  max-width: 22ch;
+  font-size: 2rem;
+  line-height: 1.2;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  margin: 0 0 1rem;
+}
+
+.lede .accent {
+  color: var(--red);
 }
 
 .sub {
   color: var(--dim);
-  max-width: 62ch;
-  margin: 0 0 2.5rem;
-}
-
-/* Install block: the hero. Amber caret, selectable command, quiet frame. */
-.install {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 1rem 1.1rem;
-  overflow-x: auto;
-  margin-bottom: 0.65rem;
-}
-
-.install code {
-  white-space: pre;
-  font-size: 0.9rem;
-}
-
-.install .caret {
-  color: var(--amber);
-  user-select: none;
-  margin-right: 0.6rem;
+  font-size: 1.05rem;
+  max-width: 56ch;
+  margin: 0 0 2.25rem;
 }
 
 .note {
   color: var(--dim);
-  font-size: 0.85rem;
-  margin: 0 0 3rem;
+  font-size: 0.92rem;
+  margin: 0 0 2rem;
 }
 
+.note code,
+.sub code,
+.block code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  background: var(--surface-lift);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.05em 0.35em;
+}
+
+/* Buttons: one loud primary, quiet ghosts for the rest. */
+.btn {
+  display: inline-block;
+  background: var(--surface-lift);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 0.7rem 1.2rem;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--dim);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn.primary {
+  background: var(--red);
+  border-color: var(--red);
+  color: #fff;
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: var(--red-dark);
+  border-color: var(--red-dark);
+}
+
+.btn.big {
+  font-size: 1.1rem;
+  padding: 0.85rem 1.6rem;
+}
+
+.signin {
+  display: inline-block;
+  background: var(--red);
+  border: 1px solid var(--red);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 1.1rem;
+  font-weight: 700;
+  padding: 0.85rem 1.6rem;
+  text-decoration: none;
+}
+
+.signin:hover {
+  background: var(--red-dark);
+}
+
+.signout {
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--dim);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.95rem;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  margin-top: 1.5rem;
+}
+
+.signout:hover {
+  color: var(--text);
+  border-color: var(--dim);
+}
+
+/* Sections on the command page. */
 .block {
-  margin-bottom: 3rem;
+  margin-bottom: 2.75rem;
 }
 
 .block h2 {
-  font-size: 0.95rem;
-  font-weight: 500;
-  color: var(--text);
-  margin: 0 0 0.9rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin: 0 0 0.75rem;
   padding-bottom: 0.55rem;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 2px solid var(--red);
 }
 
 .block p {
   color: var(--dim);
-  margin: 0 0 0.8rem;
+  margin: 0 0 0.9rem;
 }
 
-/* Model rows. Flat list, not cards — a catalogue reads better as a list. */
-.rows {
-  border-top: 1px solid var(--line);
+/* Numbered steps: big red numerals, short lines. */
+.steps {
+  list-style: none;
+  margin: 0 0 2.5rem;
+  padding: 0;
+  counter-reset: step;
 }
 
-.row {
+.steps li {
+  counter-increment: step;
   display: flex;
+  gap: 1rem;
   align-items: flex-start;
-  gap: 0.85rem;
-  width: 100%;
-  text-align: left;
-  padding: 0.8rem 0.5rem;
-  background: none;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-
-.row:hover,
-.row:focus-visible {
-  background: var(--surface);
-}
-
-.row .pip {
-  color: var(--line);
-  padding-top: 0.1rem;
-}
-
-.row[data-active='true'] .pip {
-  color: var(--amber);
-}
-
-.row .name {
-  display: block;
-}
-
-.row .meta {
-  display: block;
+  margin-bottom: 1.1rem;
   color: var(--dim);
-  font-size: 0.8rem;
+  font-size: 1.02rem;
 }
 
-.row .free {
-  color: var(--sky);
-  font-size: 0.8rem;
-  margin-left: auto;
-  padding-top: 0.15rem;
-}
-
-.group {
-  margin: 2.25rem 0 0;
-}
-
-.group-head {
+.steps li::before {
+  content: counter(step);
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: var(--red-soft);
+  border: 1px solid var(--red);
+  color: var(--red);
+  font-weight: 800;
   display: flex;
-  align-items: baseline;
-  gap: 0.6rem;
-  margin-bottom: 0.4rem;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  line-height: 1;
 }
 
-.group-head span:last-child {
-  color: var(--dim);
-  font-size: 0.8rem;
+.steps li strong {
+  color: var(--text);
 }
 
-.field {
-  width: 100%;
+/* Install block: the hero. The command, a frame, and a loud copy button. */
+.install {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 4px;
-  color: var(--text);
-  font: inherit;
-  font-size: 0.9rem;
-  padding: 0.65rem 0.8rem;
+  border-left: 4px solid var(--red);
+  border-radius: 8px;
+  padding: 1rem 1.1rem;
+  overflow-x: auto;
+  margin-bottom: 0.75rem;
+}
+
+.install code {
+  font-family: var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.copyrow {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.copied {
+  color: var(--red);
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.btnrow {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
   margin-bottom: 1rem;
 }
 
-.field:focus-visible {
-  outline: 2px solid var(--amber);
-  outline-offset: 1px;
-}
-
-.state {
-  color: var(--dim);
-  padding: 1.5rem 0;
-}
-
-.state.bad {
-  color: var(--rose);
+.tokenline {
+  font-family: var(--mono);
+  font-size: 0.9rem;
 }
 
 :focus-visible {
-  outline: 2px solid var(--amber);
+  outline: 2px solid var(--red);
   outline-offset: 2px;
+}
+
+@media (max-width: 480px) {
+  body {
+    font-size: 16px;
+  }
+  .shell {
+    padding: 1.5rem 1rem 3rem;
+  }
+  .lede {
+    font-size: 1.7rem;
+  }
+  .btnrow .btn,
+  .copyrow .btn {
+    flex: 1;
+    text-align: center;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -227,285 +318,4 @@ a {
     transition: none !important;
     animation: none !important;
   }
-}
-
-/* ---------- gateway console ---------- */
-
-.lbl {
-  display: block;
-  font-size: 0.8rem;
-  color: var(--dim);
-  margin-bottom: 0.4rem;
-}
-
-.clog {
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--surface);
-  max-height: 26rem;
-  overflow-y: auto;
-  padding: 0.75rem 0.9rem;
-  margin-bottom: 0.9rem;
-}
-
-.cturn {
-  margin-bottom: 1.25rem;
-}
-
-.cturn:last-child {
-  margin-bottom: 0.25rem;
-}
-
-.cturn-head {
-  font-size: 0.78rem;
-  color: var(--dim);
-  margin-bottom: 0.35rem;
-}
-
-.cturn.user .cturn-head {
-  color: var(--amber);
-}
-
-.cturn .prose {
-  margin: 0 0 0.7rem;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.cturn .prose code {
-  background: var(--surface-lift);
-  border: 1px solid var(--line);
-  border-radius: 3px;
-  padding: 0 0.3em;
-  font-size: 0.88em;
-}
-
-.cerror {
-  color: var(--rose);
-  margin: 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.cnote {
-  color: var(--dim);
-  font-size: 0.8rem;
-  margin: 0.5rem 0 0;
-}
-
-.cblock {
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  margin: 0 0 0.7rem;
-  overflow: hidden;
-}
-
-.cblock-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: var(--surface-lift);
-  padding: 0.3rem 0.6rem;
-  font-size: 0.78rem;
-  color: var(--dim);
-}
-
-.cblock-head button {
-  background: none;
-  border: 1px solid var(--line);
-  border-radius: 3px;
-  color: var(--dim);
-  font: inherit;
-  font-size: 0.75rem;
-  padding: 0.15rem 0.5rem;
-  cursor: pointer;
-}
-
-.cblock-head button:hover {
-  color: var(--text);
-  border-color: var(--dim);
-}
-
-.cblock pre {
-  margin: 0;
-  padding: 0.7rem 0.8rem;
-  overflow-x: auto;
-  font-size: 0.85rem;
-  line-height: 1.55;
-}
-
-.cblock code .str { color: #a8c8a0; }
-.cblock code .com { color: #5c6a8a; font-style: italic; }
-.cblock code .num { color: #d8a878; }
-.cblock code .kw { color: #e9a23b; }
-
-.crow {
-  display: flex;
-  gap: 0.75rem;
-  align-items: flex-start;
-}
-
-.cinput {
-  flex: 1;
-  resize: vertical;
-  min-height: 4.5rem;
-  margin-bottom: 0;
-}
-
-.cbtns {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  min-width: 5.5rem;
-}
-
-.btn {
-  background: var(--amber);
-  border: 1px solid var(--amber);
-  border-radius: 4px;
-  color: #141824;
-  font: inherit;
-  font-size: 0.85rem;
-  font-weight: 600;
-  padding: 0.55rem 0.9rem;
-  cursor: pointer;
-}
-
-.btn:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.btn.danger {
-  background: var(--rose);
-  border-color: var(--rose);
-}
-
-.btn.ghost {
-  background: none;
-  border-color: var(--line);
-  color: var(--dim);
-  font-weight: 400;
-}
-
-.btn.ghost:hover:not(:disabled) {
-  color: var(--text);
-  border-color: var(--dim);
-}
-
-.btn.small {
-  font-size: 0.75rem;
-  padding: 0.3rem 0.6rem;
-  margin-bottom: 0.75rem;
-}
-
-.h2btn {
-  background: none;
-  border: 0;
-  color: inherit;
-  font: inherit;
-  padding: 0;
-  cursor: pointer;
-}
-
-.hrow {
-  cursor: default;
-}
-
-@media (max-width: 480px) {
-  .crow {
-    flex-direction: column;
-  }
-  .cbtns {
-    flex-direction: row;
-    width: 100%;
-  }
-  .cbtns .btn {
-    flex: 1;
-  }
-}
-
-/* ---------- hosted chatbot (sign-in gate + /chat) ---------- */
-
-.signin {
-  display: inline-block;
-  border: 1px solid #7ee787;
-  color: #7ee787;
-  border-radius: 6px;
-  padding: 0.55rem 1.1rem;
-  text-decoration: none;
-  font-weight: 600;
-}
-
-.signin:hover {
-  background: rgba(126, 231, 135, 0.12);
-}
-
-.signout {
-  background: none;
-  border: 1px solid #484f58;
-  color: inherit;
-  border-radius: 6px;
-  padding: 0.4rem 0.9rem;
-  cursor: pointer;
-  margin-top: 1rem;
-}
-
-.chatbox {
-  border: 1px solid #30363d;
-  border-radius: 8px;
-  padding: 0.9rem;
-  min-height: 220px;
-  max-height: 55vh;
-  overflow-y: auto;
-  margin-bottom: 0.75rem;
-}
-
-.msg {
-  margin-bottom: 0.7rem;
-  line-height: 1.45;
-}
-
-.msgrole {
-  display: inline-block;
-  min-width: 2.4rem;
-  font-weight: 700;
-  opacity: 0.75;
-  text-transform: uppercase;
-  font-size: 0.72rem;
-  letter-spacing: 0.04em;
-}
-
-.msg.user .msgrole {
-  color: #7ee787;
-}
-
-.composer {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.composer input {
-  flex: 1;
-  background: #0d1117;
-  border: 1px solid #30363d;
-  border-radius: 6px;
-  color: inherit;
-  padding: 0.55rem 0.7rem;
-}
-
-.composer button,
-.block button {
-  background: #21262d;
-  border: 1px solid #30363d;
-  color: inherit;
-  border-radius: 6px;
-  padding: 0.5rem 0.95rem;
-  cursor: pointer;
-}
-
-.composer button:disabled,
-.block button:disabled {
-  opacity: 0.5;
-  cursor: default;
 }

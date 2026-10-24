@@ -98,7 +98,8 @@ error-inbox's own `.env` exactly, so you can copy values straight across:
 | `FIREWORKS_API_KEY` | Fireworks | Yes |
 | `DEEPINFRA_API_KEY` | DeepInfra | Yes |
 | `HF_TOKEN` | Hugging Face | Yes |
-| `VENICE_API_KEY` + `VENICE_MODEL` | Venice AI | Yes (model swappable by env; default `venice-uncensored-1-2`) |
+| `HF_MODEL` | Hugging Face (EI catalog) | No (default-model override; keyless route) |
+| `COMPOSIO_API_KEY` | Composio (agent app tools) | Yes |
 | `GRATISFY_API_KEY` + `GRATISFY_BASE_URL` | Gratisfy | Yes (models discovered live) |
 | `OMNIROUTE_API_KEY` + `OMNIROUTE_BASE_URL` | OmniRoute (self-hosted) | Yes, both |
 | `ANTHROPIC_API_KEY` + `ANTHROPIC_MODEL` | Anthropic | Yes |
@@ -108,10 +109,11 @@ error-inbox's own `.env` exactly, so you can copy values straight across:
 
 Copy `.env.example` to `.env.local` for local development.
 
-## The hosted chatbot (owner-only)
+## The hosted app (owner-only)
 
-The web app is a single-owner chatbot, not a public gateway. Anonymous
-visitors get a GitHub sign-in screen and nothing else.
+The website is a gate, not a chatbot. Anonymous visitors get a GitHub
+sign-in screen and nothing else; after sign-in the only page is the
+Termux command page. The chat itself lives in Termux on the phone.
 
 - **Sign-in.** GitHub OAuth (`/api/auth/github` → `/api/auth/callback`).
   Create one OAuth app in your GitHub settings with the callback
@@ -119,24 +121,25 @@ visitors get a GitHub sign-in screen and nothing else.
   `GITHUB_OAUTH_CLIENT_SECRET` and `SESSION_SECRET`. Only
   `OWNER_GITHUB_LOGIN` (default `jaykk99`) is let in; any other GitHub
   account that completes sign-in is refused.
-- **Chatbot.** `/chat` runs Venice first — `VENICE_API_KEY` for the key,
-  `VENICE_MODEL` for the model (default `venice-uncensored-1-2`, the exact
-  id Venice's `/models` lists) — with the repo's failover chain behind it.
-  Its tools run server-side and are session-only: `github_api` (GitHub as
-  you, via the `GITHUB_TOKEN` server env), `venice_api` (the Venice API),
-  `run_terminal` (a sandboxed shell on the host — no provider keys in its
-  environment), `fetch_url`, `web_search`, and the skill tools below.
-  Every tool call is audit-logged to `.data/audit.log`.
-- **Venice skills.** `skills/venice/` vendors the official Agent Skills
-  from [veniceai/skills](https://github.com/veniceai/skills) (MIT, see
-  `skills/venice/SOURCE.md`). The chatbot advertises them in its system
-  prompt and loads one on demand with `read_skill` before calling
-  `venice_api` for that surface.
+- **Command page.** `/` after sign-in shows the gateway token manager and
+  the full Termux install command carrying the token, with a copy button.
+  One active token, stored hashed, revocable there.
+- **Hosted agent.** `/api/bot/chat` is an API endpoint (no web UI) behind
+  the owner's session. The default model is the first uncensored pick
+  from the owner's Inbox Models pool, served through error-inbox's
+  Hugging Face catalog route (`HF_MODEL` overrides it), with the repo's
+  failover chain behind it. Its tools run server-side and are
+  session-only: `github_api` (GitHub as you, via the `GITHUB_TOKEN`
+  server env), `composio_search` / `composio_execute` (your connected
+  apps — Gmail, Calendar, Facebook, Outlook — through your Composio
+  workspace, key in `COMPOSIO_API_KEY`), `run_terminal` (a sandboxed
+  shell on the host — no provider keys in its environment), `fetch_url`
+  and `web_search`. Every tool call is audit-logged to `.data/audit.log`.
 - **Phone gateway.** The gateway routes (`/api/chat`, `/api/ask`,
   `/api/models`) accept the browser session OR a gateway token. Mint one
-  on `/chat` after signing in (one active token, stored hashed, revocable
-  there) and the page shows the full Termux install command carrying it.
-  Already installed? `/gateway-token <token>` inside the CLI.
+  on `/` after signing in and the page shows the full Termux install
+  command carrying it. Already installed? `/gateway-token <token>`
+  inside the CLI.
 - **Deploy.** `Dockerfile` included (Koyeb/Render/Fly/any Docker host):
   `npm run build`, then `npm start`. Persistent `.data/` (token store +
   audit log) wants a volume on hosts with ephemeral disks.
@@ -178,14 +181,6 @@ read, write, or run anything on the phone for that turn. The settings page
 and `/model` picker both flag these as "chat only, no file access." The
 catalogue API reports the same honestly as `capabilities: { chat, tools }`
 on every model.
-
-## Web console
-
-`/console` talks to the gateway exactly the way the Termux CLI does — pick
-a model, send one message, read the reply with code blocks highlighted. It
-keeps a per-device request history (model, timing, prompt/reply previews).
-Useful for checking a model answers before you commit a whole coding
-session to it, and it works fine from a phone browser.
 
 ## Commands
 

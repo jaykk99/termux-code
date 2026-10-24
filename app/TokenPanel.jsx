@@ -12,10 +12,12 @@ export default function TokenPanel({ site, existing }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [revoked, setRevoked] = useState(false);
+  const [copied, setCopied] = useState('');
 
   async function mint() {
     setBusy(true);
     setError('');
+    setCopied('');
     try {
       const res = await fetch('/api/auth/token', { method: 'POST' });
       const data = await res.json();
@@ -44,6 +46,15 @@ export default function TokenPanel({ site, existing }) {
     }
   }
 
+  async function copy(text, which) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(which);
+    } catch {
+      setError('Copy failed — long-press the command to copy it by hand.');
+    }
+  }
+
   const command = token
     ? `pkg install nodejs git\ncurl -fsSL ${site}/install.sh | TERMUX_CODE_GATEWAY=${site} TERMUX_CODE_TOKEN=${token} bash\ntermux-code`
     : null;
@@ -52,7 +63,7 @@ export default function TokenPanel({ site, existing }) {
     <div>
       {existing?.length > 0 && !token && !revoked && (
         <p className="note">
-          Active token: <code>{existing[0].prefix}…</code> (created{' '}
+          Active token: <code className="tokenline">{existing[0].prefix}…</code> (created{' '}
           {new Date(existing[0].createdAt).toLocaleString()}
           {existing[0].lastUsedAt
             ? `, last used ${new Date(existing[0].lastUsedAt).toLocaleString()}`
@@ -61,28 +72,38 @@ export default function TokenPanel({ site, existing }) {
           replace it.
         </p>
       )}
-      {revoked && <p className="note">Token revoked. The phone CLI can no longer use the gateway until you mint a new one.</p>}
-      <p>
-        <button type="button" onClick={mint} disabled={busy}>
+      {revoked && (
+        <p className="note">
+          Token revoked. The phone CLI can no longer use the gateway until you mint a new one.
+        </p>
+      )}
+      <div className="btnrow">
+        <button type="button" className="btn primary" onClick={mint} disabled={busy}>
           {token || existing?.length ? 'Mint a new gateway token' : 'Mint a gateway token'}
-        </button>{' '}
+        </button>
         {existing?.length > 0 && (
-          <button type="button" onClick={revoke} disabled={busy}>
+          <button type="button" className="btn" onClick={revoke} disabled={busy}>
             Revoke token
           </button>
         )}
-      </p>
+      </div>
       {error && <p className="note">{error}</p>}
       {command && (
-        <div className="install">
-          <code style={{ whiteSpace: 'pre-wrap' }}>{command}</code>
-        </div>
-      )}
-      {token && (
-        <p className="note">
-          Copy it now — this is the only time the full token is shown. Anyone
-          with it can use this gateway as you, so treat it like a password.
-        </p>
+        <>
+          <div className="install">
+            <code>{command}</code>
+          </div>
+          <div className="copyrow">
+            <button type="button" className="btn primary big" onClick={() => copy(command, 'command')}>
+              Copy the command
+            </button>
+            {copied === 'command' && <span className="copied">Copied.</span>}
+          </div>
+          <p className="note">
+            Copy it now — this is the only time the full token is shown. Anyone
+            with it can use this gateway as you, so treat it like a password.
+          </p>
+        </>
       )}
     </div>
   );

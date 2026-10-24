@@ -51,7 +51,7 @@ async function saveConfig(cfg) {
  * to local discovery, then to whatever needs no key at all.
  */
 /** The gateway is owner-gated: the phone authenticates with the gateway
- * token minted on the deployment's /chat page after GitHub sign-in. */
+ * token minted on the deployment's landing page after GitHub sign-in. */
 function gatewayHeaders(cfg) {
   return cfg?.gatewayToken ? { Authorization: `Bearer ${cfg.gatewayToken}` } : {};
 }
@@ -297,7 +297,7 @@ const HELP = [
   ['/ask <msg>', 'message your Error Inbox agent instead (no file access)'],
   ['/inbox-key <t>', 'save the eibx_... token /ask uses'],
   ['/gateway <url>', 'point at a different deployment'],
-  ['/gateway-token <t>', 'save the gateway token minted on the deployment\u2019s /chat page'],
+  ['/gateway-token <t>', 'save the gateway token minted on the deployment\u2019s landing page'],
   ['/sessions', 'list saved conversation sessions'],
   ['/session <n>', 'resume a session by number or id'],
   ['/new', 'start a new session'],
@@ -444,7 +444,7 @@ async function main() {
       const token = input.slice(14).trim();
       if (!token) {
         console.log(
-          C.dim('  ' + (cfg.gatewayToken ? 'A gateway token is set.' : 'No gateway token set. Mint one on the deployment\u2019s /chat page after signing in.')) + '\n'
+          C.dim('  ' + (cfg.gatewayToken ? 'A gateway token is set.' : 'No gateway token set. Mint one on the deployment\u2019s landing page after signing in.')) + '\n'
         );
         continue;
       }
