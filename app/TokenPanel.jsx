@@ -14,14 +14,27 @@ export default function TokenPanel({ site, existing }) {
   const [revoked, setRevoked] = useState(false);
   const [copied, setCopied] = useState('');
 
+  // Read as text first: if the server ever answers a non-JSON body
+  // (the old failure mode on runtimes without a token store), report the
+  // status instead of leaking a JSON-parse error into the UI.
+  async function readJson(res) {
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null;
+    }
+  }
+
   async function mint() {
     setBusy(true);
     setError('');
     setCopied('');
     try {
       const res = await fetch('/api/auth/token', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok || !data.token) throw new Error(data?.error?.message || 'Minting failed.');
+      const data = await readJson(res);
+      if (!res.ok || !data?.token)
+        throw new Error(data?.error?.message || `Mint failed (server returned ${res.status}).`);
       setToken(data.token);
       setRevoked(false);
     } catch (err) {
@@ -36,7 +49,9 @@ export default function TokenPanel({ site, existing }) {
     setError('');
     try {
       const res = await fetch('/api/auth/token', { method: 'DELETE' });
-      if (!res.ok) throw new Error('Revoke failed.');
+      const data = await readJson(res);
+      if (!res.ok)
+        throw new Error(data?.error?.message || `Revoke failed (server returned ${res.status}).`);
       setToken(null);
       setRevoked(true);
     } catch (err) {

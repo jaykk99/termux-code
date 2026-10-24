@@ -34,6 +34,18 @@ Project settings (Cloudflare API / dashboard, not wrangler):
   OAuth app exists — `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`
   (secret), `GITHUB_TOKEN` (secret). The OAuth callback is
   `https://termux-code.pages.dev/api/auth/callback`.
+- Gateway token store (REQUIRED for the Mint button to work — without it,
+  minting answers a JSON 500 naming the missing binding instead of
+  minting): a KV namespace bound to the Pages project as `GATEWAY_KV`.
+  KV is free (Workers free tier). Dashboard path: Workers & Pages → KV →
+  Create namespace (e.g. `termux-code-gateway`), then Pages project
+  `termux-code` → Settings → Functions → KV namespace bindings → Add
+  binding, variable name `GATEWAY_KV`, namespace `termux-code-gateway`.
+  Any later deployment picks the binding up automatically; no code or
+  env-var change is needed per deploy. Note the existing API token's
+  scopes (Pages Edit, Zone DNS Edit, Zone Read) do not cover Workers KV,
+  so the namespace + binding are a dashboard step (or a token with
+  Workers KV Storage Edit), not a wrangler step.
 
 Known runtime differences on Cloudflare:
 
@@ -41,6 +53,7 @@ Known runtime differences on Cloudflare:
   Workers/Pages has no shell. It works in the Docker deployment.
 - Skills are read from the filesystem on Node; on Cloudflare the skills
   directory is not readable, so `list_skills` returns none there.
-- Gateway tokens and sessions state that the Node deployment keeps in
-  `.data/` has no filesystem on Cloudflare; sign-in sessions are signed
-  cookies and work, token minting/storage does not persist there.
+- Gateway tokens: the Node/Docker deployment keeps them in `.data/`; on
+  Cloudflare they live in the `GATEWAY_KV` namespace (hashed, one active
+  token per owner, same as the file store). Sign-in sessions are signed
+  cookies and work on both runtimes.
