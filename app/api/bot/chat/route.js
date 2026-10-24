@@ -26,11 +26,15 @@ export const maxDuration = 120;
  * for the phone, but it can NEVER reach this route or its server-side
  * tools. Anonymous requests are refused before anything else happens.
  *
- * The chat is powered by Venice (VENICE_MODEL, default
- * venice-uncensored-1-2) first; if Venice errors or refuses, the repo's
- * failover chain walks the other available models and the attempts log in
- * the response says honestly which model answered. Tool calls execute
- * server-side via lib/server-tools.mjs and every one is audit-logged.
+ * The chat is powered first by Jay's first uncensored pick from his Inbox
+ * Models pool, served through error-inbox's Hugging Face catalog route
+ * (HF_MODEL, default 0bserverx/Qwen3.8-27B-Heretic-Abliterated-Uncensored
+ * -GGUF). If it errors or refuses, the repo's failover chain walks the
+ * other available models — the rest of the uncensored HF list in pool
+ * order, then everything else, Venice included when its key is set — and
+ * the attempts log in the response says honestly which model answered.
+ * Tool calls execute server-side via lib/server-tools.mjs and every one
+ * is audit-logged.
  */
 
 const MAX_MESSAGES = 60;
@@ -76,25 +80,29 @@ async function systemPrompt() {
 const completeFn = (model, messages) =>
   complete(model, messages, process.env, serverToolsForOpenAI(), { baseTools: false });
 
-/** Venice first, honestly: one direct attempt, then the failover chain. */
+/**
+ * Primary first, honestly: one direct attempt on the default model (the
+ * first `hf` candidate — Jay's first uncensored pool pick), then the
+ * failover chain over everything else.
+ */
 async function firstTurn(candidates, messages) {
   const attempts = [];
-  const venice = candidates.find((m) => m.provider === 'venice');
-  const rest = candidates.filter((m) => m !== venice);
-  if (venice) {
+  const primary = candidates.find((m) => m.provider === 'hf');
+  const rest = candidates.filter((m) => m !== primary);
+  if (primary) {
     const started = Date.now();
     try {
-      const reply = await completeFn(venice, messages);
+      const reply = await completeFn(primary, messages);
       if (!isRefusalReply(reply)) {
-        attempts.push(makeAttempt({ provider: 'venice', modelId: venice.id, ok: true, latencyMs: Date.now() - started }));
-        return { model: venice, reply, attempts };
+        attempts.push(makeAttempt({ provider: primary.provider, modelId: primary.id, ok: true, latencyMs: Date.now() - started }));
+        return { model: primary, reply, attempts };
       }
       attempts.push(
-        makeAttempt({ provider: 'venice', modelId: venice.id, ok: false, latencyMs: Date.now() - started, error: 'refused' })
+        makeAttempt({ provider: primary.provider, modelId: primary.id, ok: false, latencyMs: Date.now() - started, error: 'refused' })
       );
     } catch (err) {
       attempts.push(
-        makeAttempt({ provider: 'venice', modelId: venice.id, ok: false, latencyMs: Date.now() - started, error: err?.message })
+        makeAttempt({ provider: primary.provider, modelId: primary.id, ok: false, latencyMs: Date.now() - started, error: err?.message })
       );
     }
   }
