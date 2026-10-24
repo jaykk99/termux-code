@@ -7,7 +7,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { isRefusalResponse, isRefusalReply } from '../lib/refusal.mjs';
+import { isRefusalResponse, isRefusalReply, isBlankReply } from '../lib/refusal.mjs';
 
 describe('isRefusalResponse() — catches real refusals', () => {
   const refusals = [
@@ -44,6 +44,26 @@ describe('isRefusalResponse() — catches real refusals', () => {
     "I'm sorry, I won't be able to complete that request.",
     "I don't think it's appropriate for me to generate that content.",
     'That goes against my content policy, so I have to decline.',
+    // Battery added in the 2026-10-24 follow-up audit — phrasings the
+    // set above missed outright, so the chain stopped at the first
+    // model and surfaced the refusal instead of walking on.
+    'I refuse to help with that.',
+    "I can't do this.",
+    'I cannot do this for you.',
+    "That's not something I can help with.",
+    'This is not something I can do.',
+    'Unable to comply with this request.',
+    'Unable to help with that.',
+    "I don't provide instructions for that.",
+    "I'm not in a position to help with that.",
+    'My safety guidelines prohibit me from helping with this.',
+    "I can't show you that.",
+    "I can't share that.",
+    "I won't be doing that.",
+    "Sorry, can't help with that.",
+    'My programming prevents me from generating that content.',
+    "I can't do this because it goes against my guidelines.",
+    'Unfortunately, unable to comply with this request.',
   ];
   for (const text of refusals) {
     it(`flags: ${text.slice(0, 48)}…`, () => {
@@ -85,6 +105,18 @@ describe('isRefusalResponse() — leaves real answers alone', () => {
     "My policy is to always run the tests before committing; here's the pre-commit hook I use.",
     "I can't help but notice the loop never terminates when the list is empty — add a break condition like this.",
     "Against my principles of clean code, I'd still ship the workaround today and refactor Friday — here's the patch.",
+    // Guards for the 2026-10-24 patterns: near-miss legit answers that
+    // must NOT be swept up by the new refusal shapes.
+    'I refuse to merge this without tests — add the two cases below and I will sign off.',
+    "I can't do this alone, but here is the script that does the bulk of it.",
+    "I can't do this justice in one paragraph, so here is the short version plus the full doc.",
+    "That's not something I can help with alone — you'll need the electrician for the panel, but here is the wiring plan.",
+    'Unable to comply with that approach — use the new API instead, here is the patch.',
+    "I'm not in a position to judge that call yet, but here is the data you asked for.",
+    'My policy is to run the full suite before every deploy; the checklist is below.',
+    "I don't provide legal advice for that jurisdiction, but here is some general information that may help.",
+    "I can't share that file until Friday, but here is the draft.",
+    "Sorry, can't help but notice the cache key is missing a prefix — fix below.",
   ];
   for (const text of answers) {
     it(`passes: ${text.slice(0, 48)}…`, () => {
@@ -126,5 +158,19 @@ describe('isRefusalReply()', () => {
   it('passes a normal reply and a null reply', () => {
     assert.equal(isRefusalReply({ text: 'Done — two files changed.', toolCalls: [] }), false);
     assert.equal(isRefusalReply(null), false);
+  });
+});
+
+describe('isBlankReply()', () => {
+  it('flags empty, whitespace-only, missing, and null replies', () => {
+    assert.equal(isBlankReply({ text: '', toolCalls: [] }), true);
+    assert.equal(isBlankReply({ text: '   \n  ', toolCalls: [] }), true);
+    assert.equal(isBlankReply({ toolCalls: [] }), true);
+    assert.equal(isBlankReply(null), true);
+  });
+
+  it('does not flag real text or a reply carrying tool calls', () => {
+    assert.equal(isBlankReply({ text: 'Done.', toolCalls: [] }), false);
+    assert.equal(isBlankReply({ text: '', toolCalls: [{ id: '1', name: 'bash', args: {} }] }), false);
   });
 });

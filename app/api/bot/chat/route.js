@@ -5,7 +5,7 @@ import {
   makeAttempt,
   FailureTracker,
 } from '../../../../lib/failover.mjs';
-import { isRefusalReply } from '../../../../lib/refusal.mjs';
+import { isRefusalReply, isBlankReply } from '../../../../lib/refusal.mjs';
 import { readJSON, bad, upstreamError, logRequest } from '../../../../lib/http.mjs';
 import { ownerSession } from '../../../../lib/auth.mjs';
 import {
@@ -91,12 +91,18 @@ async function turnWithFailover(candidates, messages, preferred, attempts) {
     const started = Date.now();
     try {
       const reply = await completeFn(preferred, messages);
-      if (!isRefusalReply(reply)) {
+      // Same sorry-skip as the failover chain, plus the same blank skip:
+      // a preferred model that refuses OR answers empty falls through
+      // to the chain instead of ending the turn with a refusal or a
+      // blank reply.
+      const refused = isRefusalReply(reply);
+      const blank = !refused && isBlankReply(reply);
+      if (!refused && !blank) {
         attempts.push(makeAttempt({ provider: preferred.provider, modelId: preferred.id, ok: true, latencyMs: Date.now() - started }));
         return { model: preferred, reply };
       }
       attempts.push(
-        makeAttempt({ provider: preferred.provider, modelId: preferred.id, ok: false, latencyMs: Date.now() - started, error: 'refused' })
+        makeAttempt({ provider: preferred.provider, modelId: preferred.id, ok: false, latencyMs: Date.now() - started, error: blank ? 'empty reply' : 'refused' })
       );
     } catch (err) {
       attempts.push(
