@@ -180,3 +180,66 @@ describe('the two gate levels', () => {
     assert.equal(cookies.b, 'two words');
   });
 });
+
+/* In-memory stand-in for a Cloudflare KV namespace (async get/put/delete). */
+function memoryKv() {
+  const map = new Map();
+  return {
+    async get(key) {
+      return map.has(key) ? map.get(key) : null;
+    },
+    async put(key, value) {
+      map.set(key, value);
+    },
+    async delete(key) {
+      map.delete(key);
+    },
+    raw() {
+      return [...map.values()].join('\n');
+    },
+  };
+}
+
+describe('gateway tokens on a KV store (Cloudflare runtime)', () => {
+  it('issues, verifies, lists (metadata only) and revokes via KV', async () => {
+    const kv = memoryKv();
+    const KV_ENV = { ...ENV, GATEWAY_KV: kv };
+    const token = await issueGatewayToken('jaykk99', KV_ENV);
+    assert.ok(token.startsWith('tc_'));
+    assert.deepEqual(await verifyGatewayToken(token, KV_ENV), { login: 'jaykk99' });
+
+    const list = await listGatewayTokens('jaykk99', KV_ENV);
+    assert.equal(list.length, 1);
+    assert.ok(!JSON.stringify(list).includes(token), 'listing must never reveal the token');
+
+    // The KV value holds hashes only — the plaintext never touches the store.
+    assert.ok(!kv.raw().includes(token), 'plaintext token must never touch the store');
+
+    assert.equal(await revokeGatewayTokens('jaykk99', KV_ENV), 1);
+    assert.equal(await verifyGatewayToken(token, KV_ENV), null);
+  });
+
+  it('minting a second token revokes the first (one active token)', async () => {
+    const kv = memoryKv();
+    const KV_ENV = { ...ENV, GATEWAY_KV: kv };
+    const first = await issueGatewayToken('jaykk99', KV_ENV);
+    const second = await issueGatewayToken('jaykk99', KV_ENV);
+    assert.equal(await verifyGatewayToken(first, KV_ENV), null);
+    assert.deepEqual(await verifyGatewayToken(second, KV_ENV), { login: 'jaykk99' });
+  });
+
+  it('a failing KV store rejects the mint (the route turns this into JSON 500)', async () => {
+    const brokenKv = {
+      async get() {
+        throw new Error('KV unavailable');
+      },
+      async put() {
+        throw new Error('KV unavailable');
+      },
+      async delete() {
+        throw new Error('KV unavailable');
+      },
+    };
+    await assert.rejects(issueGatewayToken('jaykk99', { ...ENV, GATEWAY_KV: brokenKv }));
+  });
+});

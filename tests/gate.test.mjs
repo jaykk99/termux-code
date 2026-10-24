@@ -105,3 +105,45 @@ describe('/api/auth/token', () => {
     assert.ok(Array.isArray(data.tokens));
   });
 });
+
+describe('/api/auth/token (mint path)', () => {
+  it('mints for the owner session through the real handler', async () => {
+    const res = await tokenRoute.POST(
+      post('https://x.test/api/auth/token', { headers: { Cookie: sessionCookie } })
+    );
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.ok(typeof data.token === 'string' && data.token.startsWith('tc_'));
+  });
+
+  it('a failing store answers JSON 500, never an empty body', async () => {
+    // Regression test for the Cloudflare failure: the old handler let the
+    // store throw out of the route, and the browser saw an empty body
+    // ("Unexpected end of JSON input"). The fixed handler must answer
+    // parseable JSON so the UI can show the real message.
+    const throwingKv = {
+      async get() {
+        throw new Error('KV unavailable');
+      },
+      async put() {
+        throw new Error('KV unavailable');
+      },
+      async delete() {
+        throw new Error('KV unavailable');
+      },
+    };
+    process.env.GATEWAY_KV = throwingKv;
+    try {
+      const res = await tokenRoute.POST(
+        post('https://x.test/api/auth/token', { headers: { Cookie: sessionCookie } })
+      );
+      assert.equal(res.status, 500);
+      const data = await res.json();
+      assert.equal(data.ok, false);
+      assert.equal(data.error.code, 'STORE_FAILED');
+      assert.match(data.error.message, /GATEWAY_KV/);
+    } finally {
+      delete process.env.GATEWAY_KV;
+    }
+  });
+});
