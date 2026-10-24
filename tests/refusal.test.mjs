@@ -20,6 +20,30 @@ describe('isRefusalResponse() — catches real refusals', () => {
     'That would violate my content policy, so I will not help with it.',
     "I don't feel comfortable generating that.",
     'I cannot and will not comply with that request.',
+    // Battery added in the 2026-10-23 refusal pass — phrasings the
+    // original pattern set missed outright.
+    'I apologize, but I cannot fulfill this request.',
+    'I understand your request, but I cannot assist with creating that content.',
+    "As an AI language model, I'm unable to help with that.",
+    "I'm unable to assist with that request.",
+    "Sorry, I can't generate that kind of content.",
+    "I can't help you with that.",
+    "I won't be able to help with that.",
+    "This request violates my safety guidelines, so I can't proceed.",
+    "I'm not comfortable helping with that.",
+    'I must decline this request.',
+    "Unfortunately, I'm not able to provide that information.",
+    'I cannot create content of that nature.',
+    "My guidelines don't allow me to help with that.",
+    "I can't assist with requests of that nature.",
+    'Regrettably, I cannot help you with this.',
+    "I'm afraid I can't help with that.",
+    "Sorry, but I won't help with that.",
+    'I do not provide assistance with that kind of request.',
+    "As much as I'd like to help, I can't.",
+    "I'm sorry, I won't be able to complete that request.",
+    "I don't think it's appropriate for me to generate that content.",
+    'That goes against my content policy, so I have to decline.',
   ];
   for (const text of refusals) {
     it(`flags: ${text.slice(0, 48)}…`, () => {
@@ -39,6 +63,28 @@ describe('isRefusalResponse() — leaves real answers alone', () => {
     "I'm sorry to hear the tests are failing. Let's look at the stack trace first.",
     "I can't reproduce the bug locally, but the null check in parse() is the likely culprit — here is a fix.",
     'Sure — I can help with that. First, open lib/agent.mjs and find the dispatch switch.',
+    // Battery added in the 2026-10-23 refusal pass — legit answers the
+    // original pattern set misread as refusals, plus near-miss shapes.
+    'Here is a recon plan for your own server: start with nmap -sV against your host, then check the TLS config. Log the open ports, banner versions, and any expired certs.',
+    'Fall special: full gutter cleaning from $100, guards installed at $8.50 per foot. Call today to book your free inspection before the snow flies.',
+    'The lighthouse keeper woke before dawn, the letter still unopened on the table. She made tea, watched the fog eat the harbour, and finally slit the envelope with her thumb.',
+    'Healthy relationships are built on trust, communication, and respect. Partners set boundaries, listen without interrupting, and resolve conflict without threats or control.',
+    "I'm sorry to hear the deploy failed. Roll back to the last green build, then check the migration logs — here is the command sequence.",
+    "I won't be able to finish the full migration tonight because the test suite takes two hours, but the schema half is done and committed.",
+    'This cannot be merged yet: the parser cannot handle empty input. Add a guard clause like the one below.',
+    "As an AI coding assistant I can help with that — here's the refactored dispatch switch.",
+    "I'm sorry, I forgot to mention the second changed file in my last message — it's lib/http.mjs, and the diff is small.",
+    "I don't think it's appropriate to use a global variable for the session here; a closure keeps it scoped. Example below.",
+    "I don't feel comfortable merging this without tests — add the two cases below and I'll sign off.",
+    "The style guide says to decline pull requests that skip CI; here's how to run the checks locally so yours passes.",
+    "I can't wait to show you this — the benchmark doubled after the cache fix. Numbers below.",
+    'Unfortunately the package was renamed on npm; install the new name and the imports resolve again.',
+    'To solve 3x + 7 = 22, subtract 7 from both sides to get 3x = 15, then divide by 3: x = 5.',
+    'I cannot stress this enough: back up the database before running the migration. Steps follow.',
+    "It would violate the warranty to open the PSU, so instead check the external fuse first — here's how.",
+    "My policy is to always run the tests before committing; here's the pre-commit hook I use.",
+    "I can't help but notice the loop never terminates when the list is empty — add a break condition like this.",
+    "Against my principles of clean code, I'd still ship the workaround today and refactor Friday — here's the patch.",
   ];
   for (const text of answers) {
     it(`passes: ${text.slice(0, 48)}…`, () => {
