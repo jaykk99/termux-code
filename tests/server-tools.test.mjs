@@ -63,6 +63,21 @@ describe('run_terminal', () => {
     assert.ok(out.startsWith('exit 0'));
   });
 
+  it('reports honestly that the terminal is unavailable on Cloudflare Workers', async () => {
+    const realNavigator = globalThis.navigator;
+    Object.defineProperty(globalThis, 'navigator', {
+      value: { userAgent: 'Cloudflare-Workers' },
+      configurable: true,
+    });
+    try {
+      const out = await runServerTool('run_terminal', { command: 'echo should-not-run' }, ctx());
+      assert.ok(out.includes('unavailable on this runtime'), out);
+      assert.ok(!out.includes('should-not-run') || out.includes('exit'), out);
+    } finally {
+      Object.defineProperty(globalThis, 'navigator', { value: realNavigator, configurable: true });
+    }
+  });
+
   it('does NOT leak provider keys into the terminal environment', async () => {
     process.env.VENICE_API_KEY = '<redacted>';
     try {
