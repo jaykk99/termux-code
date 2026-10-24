@@ -3,12 +3,21 @@
   "version": "0.1.0",
   "description": "A coding agent for Termux, with a Vercel gateway that holds your model keys.",
   "type": "module",
-  "bin": { "termux-code": "./bin/termux-code.mjs" },
-  "files": ["bin", "lib", "README.md"],
-  "engines": { "node": ">=18" },
+  "bin": {
+    "termux-code": "./bin/termux-code.mjs"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:cf": "opennextjs-cloudflare build",
     "start": "next start",
     "cli": "node ./bin/termux-code.mjs",
     "test": "node --test tests/http.test.mjs tests/models.test.mjs tests/failover.test.mjs tests/refusal.test.mjs tests/sessions.test.mjs tests/venice.test.mjs tests/auth.test.mjs tests/skills.test.mjs tests/server-tools.test.mjs tests/gate.test.mjs"
@@ -18,5 +27,9 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@opennextjs/cloudflare": "^1.20.13",
+    "wrangler": "^4.152.0"
+  }
 }
