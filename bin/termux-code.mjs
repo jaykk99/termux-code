@@ -210,6 +210,17 @@ async function completeViaGateway(gateway, model, messages, gatewayToken) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.error) {
+    // A rejected gateway token is terminal: every model in the chain
+    // goes through the same gate, so walking on would just print the
+    // same failure twenty times. Say the fix instead.
+    const code = data?.error?.code || data?.code;
+    if (res.status === 401 || code === 'NO_KEY') {
+      const err = new Error(
+        'Gateway rejected the token (NO_KEY). Sign in on the site landing page and copy the fresh Termux command, then try again.'
+      );
+      err.terminal = true;
+      throw err;
+    }
     throw new Error(data.error ? renderError(data.error) : `Gateway returned HTTP ${res.status}.`);
   }
   return data;

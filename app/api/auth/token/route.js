@@ -12,16 +12,17 @@ export const dynamic = 'force-dynamic';
 /**
  * Gateway tokens for the phone CLI. Session-only: minting, listing and
  * revoking happen from the signed-in browser, never with a token itself.
- * POST mints (replacing any previous token — one active token per owner)
- * and returns the plaintext exactly once; GET lists metadata; DELETE
- * revokes.
+ * POST mints a stateless signed token and returns the plaintext exactly
+ * once; GET lists stored (legacy) tokens' metadata; DELETE revokes
+ * stored (legacy) tokens. Stateless tokens are not listed or revoked
+ * here — they live until expiry or until the signing secret rotates
+ * (see lib/auth.mjs).
  *
  * The token store lives in a KV namespace bound as GATEWAY_KV on
  * Cloudflare Pages/Workers (no filesystem there); on Node/Docker it is
- * the .data JSON file. If the store write fails, the handler answers a
- * JSON 500 — never an empty body, which is what used to surface in the
- * browser as "Unexpected end of JSON input" when the filesystem write
- * threw on Cloudflare.
+ * the .data JSON file. That store is now legacy-only: minting no longer
+ * needs it, so a missing store must never 500 a mint. GET/DELETE still
+ * answer STORE_FAILED only if the store itself throws.
  */
 async function routeEnv() {
   // Only the KV binding comes from the worker env: bindings are objects,
