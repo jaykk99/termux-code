@@ -18,6 +18,7 @@ import { complete, appendToolResult, SYSTEM_PROMPT, sendToErrorInbox } from '../
 import { listModels, directModels } from '../lib/models.mjs';
 import { FailureTracker, completeWithFailover, FailoverError, formatAttempts, isUncensoredModel, renderError } from '../lib/failover.mjs';
 import { SessionStore, deriveTitle } from '../lib/sessions.mjs';
+import { cleanMessages } from '../lib/history.mjs';
 import { C, box, banner, toolHeader, toolResult, spinner, pick, wrap, width } from '../lib/tui.mjs';
 
 const CONFIG_DIR = path.join(os.homedir(), '.termux-code');
@@ -206,7 +207,7 @@ async function completeViaGateway(gateway, model, messages, gatewayToken) {
       'Content-Type': 'application/json',
       ...(gatewayToken ? { Authorization: `Bearer ${gatewayToken}` } : {}),
     },
-    body: JSON.stringify({ model, messages }),
+    body: JSON.stringify({ model, messages: cleanMessages(messages) }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.error) {
@@ -315,6 +316,7 @@ const HELP = [
   ['/ask <msg>', 'message your Error Inbox agent instead (no file access)'],
   ['/inbox-key <t>', 'save the eibx_... token /ask uses'],
   ['/gateway <url>', 'point at a different deployment'],
+  ['/gateway off', 'drop the gateway, use keyless direct models'],
   ['/gateway-token <t>', 'save the gateway token minted on the deployment\u2019s landing page'],
   ['/sessions', 'list saved conversation sessions'],
   ['/session <n>', 'resume a session by number or id'],
@@ -364,8 +366,12 @@ async function main() {
   const store = new SessionStore(SESSIONS_DIR);
   const tracker = new FailureTracker();
   let session = await resumeSession(store);
-  const messages = session.messages.length
-    ? session.messages
+  // Sessions saved before the gateway-shape fix can carry poisoned entries
+  // (an undefined assistant message serialized as null); drop them here so
+  // a poisoned session self-heals instead of failing every later message.
+  const cleanedSession = cleanMessages(session.messages);
+  const messages = cleanedSession.length
+    ? cleanedSession
     : [{ role: 'system', content: SYSTEM_PROMPT }];
 
   /** Persist the conversation without ever breaking the loop. */
@@ -391,6 +397,10 @@ async function main() {
   );
   console.log('  ' + sessionHeadline(session));
   console.log(C.dim('  /help for commands · ctrl-c to quit\n'));
+
+  // Once the gateway rejects the token, stay on keyless direct models for
+  // the rest of the session; a fresh /gateway-token re-enables the gateway.
+  let gatewayDead = false;
 
   for (;;) {
     const raw = await ask(rl, `${C.amber('❯')} `);
@@ -467,6 +477,7 @@ async function main() {
         continue;
       }
       cfg.gatewayToken = token;
+      gatewayDead = false;
       await saveConfig(cfg);
       console.log(C.dim('  Saved. The gateway will now accept this phone as you.\n'));
       continue;
@@ -478,7 +489,16 @@ async function main() {
         console.log(C.dim('  ' + (cfg.gateway || 'No gateway set.')) + '\n');
         continue;
       }
+      if (url === 'off') {
+        delete cfg.gateway;
+        delete cfg.gatewayToken;
+        gatewayDead = false;
+        await saveConfig(cfg);
+        console.log(C.dim('  Gateway cleared. Keyless direct models only. Restart to reload the model list.\n'));
+        continue;
+      }
       cfg.gateway = url;
+      gatewayDead = false;
       await saveConfig(cfg);
       console.log(C.dim('  Saved. Restart to reload the model list.\n'));
       continue;
@@ -621,9 +641,25 @@ async function main() {
     // chosen model once, directly, so a refusal there reached the screen
     // verbatim with the chain unwalked; now the only difference between
     // the modes is where the provider call happens.
-    const completeFn = cfg.gateway
-      ? () => runFailoverTurn(model, models, messages, tracker, (m) => completeViaGateway(cfg.gateway, m, messages, cfg.gatewayToken))
-      : () => runFailoverTurn(model, models, messages, tracker, (m) => complete(m, messages));
+    // If the gateway rejects the token, don't die: fall back to the keyless
+    // direct chain for the rest of the session. Sign-in is never required
+    // to keep chatting.
+    const gatewayTurn = () => runFailoverTurn(model, models, messages, tracker, (m) => completeViaGateway(cfg.gateway, m, messages, cfg.gatewayToken));
+    const directTurn = () => runFailoverTurn(model, models, messages, tracker, (m) => complete(m, messages));
+    const completeFn = !cfg.gateway || gatewayDead
+      ? directTurn
+      : async () => {
+          try {
+            return await gatewayTurn();
+          } catch (err) {
+            if (err && err.terminal) {
+              gatewayDead = true;
+              console.log(C.dim('  [gateway] token rejected, falling back to keyless direct models. /gateway-token <t> to re-enable the gateway.\n'));
+              return await directTurn();
+            }
+            throw err;
+          }
+        };
     await turn(model, messages, rl, root, completeFn);
     await persist();
     console.log('');
