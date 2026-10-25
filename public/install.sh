@@ -59,7 +59,26 @@ chmod +x "$BIN_DIR/termux-code"
 
 # --- gateway ----------------------------------------------------------------
 
-if [ ! -f "$CONFIG" ]; then
+# A re-run must refresh a stale gateway token: since stateless tokens
+# replaced the old stored ones, a config written by an older install holds
+# a token that can never validate again, and re-running the install used
+# to leave it untouched. When the installer carries a gateway and/or token
+# (the site's command always carries both), merge them into the config,
+# keeping everything else (model choice, inbox key) intact.
+if [ -n "${TERMUX_CODE_GATEWAY:-}" ] || [ -n "${TERMUX_CODE_TOKEN:-}" ]; then
+  CONFIG_FILE="$CONFIG" node -e '
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const file = process.env.CONFIG_FILE;
+    let cfg = {};
+    try { cfg = JSON.parse(fs.readFileSync(file, "utf8")); } catch {}
+    if (process.env.TERMUX_CODE_GATEWAY) cfg.gateway = process.env.TERMUX_CODE_GATEWAY;
+    if (process.env.TERMUX_CODE_TOKEN) cfg.gatewayToken = process.env.TERMUX_CODE_TOKEN;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + "\n");
+  '
+  say "Saved gateway to $CONFIG"
+elif [ ! -f "$CONFIG" ]; then
   DEFAULT_GATEWAY="${TERMUX_CODE_GATEWAY:-}"
   DEFAULT_TOKEN="${TERMUX_CODE_TOKEN:-}"
   if [ -t 0 ] && [ -z "$DEFAULT_GATEWAY" ]; then
