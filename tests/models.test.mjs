@@ -117,3 +117,17 @@ describe('groupBySource()', () => {
     assert.equal(grouped['error-inbox'].length, 1);
   });
 });
+
+describe('pollinations (keyless, verified live 2026-10-25)', () => {
+  it('is on with no env at all', () => {
+    const models = directModels(EMPTY_ENV);
+    const providers = new Set(models.map((m) => m.provider));
+    assert.ok(providers.has('pollinations'));
+  });
+
+  it('uses the verified OpenAI-compatible endpoint with no auth', () => {
+    assert.equal(PROVIDERS.pollinations.url, 'https://text.pollinations.ai/openai/v1/chat/completions');
+    assert.equal(PROVIDERS.pollinations.auth, 'none');
+    assert.equal(PROVIDERS.pollinations.envKey, null);
+  });
+});
