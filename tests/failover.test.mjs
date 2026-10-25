@@ -530,3 +530,26 @@ describe('transient retry', () => {
     assert.equal(isTransientError(new Error('401 Unauthorized')), false);
   });
 });
+
+describe('pinFirst', () => {
+  it('tries the pinned model before the rank order', async () => {
+    const models = [M('a', 'kilo', 'none'), M('b', 'llm7', 'none')];
+    const calls = [];
+    const { model } = await completeWithFailover(models, [], async (m) => {
+      calls.push(m.id);
+      return { text: 'ok', toolCalls: [] };
+    }, null, { pinFirst: { id: 'b', provider: 'llm7' } });
+    assert.deepEqual(calls, ['b']);
+    assert.equal(model.id, 'b');
+  });
+
+  it('ignores an unknown pinFirst', async () => {
+    const models = [M('a', 'kilo', 'none'), M('b', 'llm7', 'none')];
+    const calls = [];
+    await completeWithFailover(models, [], async (m) => {
+      calls.push(m.id);
+      return { text: 'ok', toolCalls: [] };
+    }, null, { pinFirst: { id: 'nope', provider: 'nope' } });
+    assert.deepEqual(calls, ['a']);
+  });
+});

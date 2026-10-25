@@ -245,6 +245,7 @@ async function runFailoverTurn(model, models, messages, tracker, completeOne) {
     (m) => !(m.id === model.id && m.provider === model.provider && m.source === model.source)
   );
   const { model: winner, reply } = await completeWithFailover([model, ...rest], messages, completeOne, tracker, {
+    pinFirst: model,
     onAttempt: (a) => {
       if (!a.ok) console.log(C.dim(`  [failover] ${a.provider} failed (${a.latencyMs}ms): ${a.error}`));
     },
