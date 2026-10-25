@@ -168,6 +168,26 @@ describe('completeWithFailover()', () => {
     }
   });
 
+  it('stops the chain at once on a terminal error (auth/config, not outage)', async () => {
+    const models = [M('a', 'kilo', 'none'), M('b', 'llm7', 'none'), M('c', 'horde', 'none')];
+    let calls = 0;
+    const attempts = [];
+    try {
+      await completeWithFailover(models, [], async () => {
+        calls++;
+        const err = new Error('Gateway rejected the token (NO_KEY).');
+        err.terminal = true;
+        throw err;
+      }, null, { onAttempt: (a) => attempts.push(a) });
+      assert.fail('should have thrown');
+    } catch (err) {
+      assert.ok(!(err instanceof FailoverError), 'terminal error rethrown as-is, not wrapped');
+      assert.match(err.message, /Gateway rejected the token/);
+      assert.equal(calls, 1, 'no further candidates tried after a terminal failure');
+      assert.equal(attempts.length, 1, 'the terminal attempt is still logged');
+    }
+  });
+
   it('feeds the circuit breaker: failures recorded, successes reset', async () => {
     const tr = new FailureTracker();
     const models = [M('a', 'kilo', 'none'), M('b', 'llm7', 'none')];

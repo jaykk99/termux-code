@@ -116,11 +116,12 @@ describe('/api/auth/token (mint path)', () => {
     assert.ok(typeof data.token === 'string' && data.token.startsWith('tc_'));
   });
 
-  it('a failing store answers JSON 500, never an empty body', async () => {
-    // Regression test for the Cloudflare failure: the old handler let the
-    // store throw out of the route, and the browser saw an empty body
-    // ("Unexpected end of JSON input"). The fixed handler must answer
-    // parseable JSON so the UI can show the real message.
+  it('a failing store no longer blocks the mint, and the body stays parseable JSON', async () => {
+    // Regression test for the Cloudflare failure, inverted: the old
+    // handler let the store throw out of the route, and the browser saw
+    // an empty body ("Unexpected end of JSON input"). Stateless tokens
+    // need no store, so the mint must succeed even with the store dead,
+    // and the response must still be parseable JSON.
     const throwingKv = {
       async get() {
         throw new Error('KV unavailable');
@@ -137,11 +138,10 @@ describe('/api/auth/token (mint path)', () => {
       const res = await tokenRoute.POST(
         post('https://x.test/api/auth/token', { headers: { Cookie: sessionCookie } })
       );
-      assert.equal(res.status, 500);
+      assert.equal(res.status, 200);
       const data = await res.json();
-      assert.equal(data.ok, false);
-      assert.equal(data.error.code, 'STORE_FAILED');
-      assert.match(data.error.message, /GATEWAY_KV/);
+      assert.equal(data.ok, true);
+      assert.ok(typeof data.token === 'string' && data.token.startsWith('tc_v1.'));
     } finally {
       delete process.env.GATEWAY_KV;
     }

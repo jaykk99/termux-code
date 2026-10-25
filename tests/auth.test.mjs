@@ -116,29 +116,41 @@ describe('GitHub OAuth helpers', () => {
 });
 
 describe('gateway tokens', () => {
-  it('issues, verifies, lists (metadata only) and revokes', async () => {
+  it('issues a stateless token that verifies with no store at all', async () => {
     const token = await issueGatewayToken('jaykk99', ENV);
-    assert.ok(token.startsWith('tc_'));
+    assert.ok(token.startsWith('tc_v1.'));
     assert.deepEqual(await verifyGatewayToken(token, ENV), { login: 'jaykk99' });
 
-    const list = await listGatewayTokens('jaykk99', ENV);
-    assert.equal(list.length, 1);
-    assert.ok(!JSON.stringify(list).includes(token), 'listing must never reveal the token');
-
-    // The store on disk holds hashes only.
-    const raw = await fs.readFile(storeFile, 'utf8');
-    assert.ok(!raw.includes(token), 'plaintext token must never touch disk');
-
-    assert.equal(await revokeGatewayTokens('jaykk99', ENV), 1);
-    assert.equal(await verifyGatewayToken(token, ENV), null);
+    // Stateless means exactly that: deleting the store must not matter,
+    // and nothing about the token is ever listed or written to disk.
+    assert.equal((await listGatewayTokens('jaykk99', ENV)).length, 0);
+    await assert.rejects(fs.readFile(storeFile, 'utf8'));
+    assert.deepEqual(await verifyGatewayToken(token, ENV), { login: 'jaykk99' });
   });
 
-  it('minting a second token revokes the first (one active token)', async () => {
+  it('rejects a tampered stateless token and one signed with another secret', async () => {
+    const token = await issueGatewayToken('jaykk99', ENV);
+    assert.equal(await verifyGatewayToken(`${token.slice(0, -2)}xx`, ENV), null);
+    const otherSecret = { ...ENV, SESSION_SECRET: 'different-secret' };
+    assert.equal(await verifyGatewayToken(token, otherSecret), null);
+  });
+
+  it('rejects an expired stateless token and one minted for a non-owner', async () => {
+    const old = await issueGatewayToken('jaykk99', ENV, Date.now() - 366 * 24 * 3600 * 1000);
+    assert.equal(await verifyGatewayToken(old, ENV), null);
+    const stranger = await issueGatewayToken('someoneelse', ENV);
+    assert.equal(await verifyGatewayToken(stranger, ENV), null);
+  });
+
+  it('minting a second token does NOT revoke the first (stateless contract)', async () => {
     const first = await issueGatewayToken('jaykk99', ENV);
     const second = await issueGatewayToken('jaykk99', ENV);
-    assert.equal(await verifyGatewayToken(first, ENV), null);
+    assert.deepEqual(await verifyGatewayToken(first, ENV), { login: 'jaykk99' });
     assert.deepEqual(await verifyGatewayToken(second, ENV), { login: 'jaykk99' });
-    await revokeGatewayTokens('jaykk99', ENV);
+    // Revoke/list cover stored (legacy) tokens only, so they are no-ops
+    // here and must never make a stateless token stop verifying.
+    assert.equal(await revokeGatewayTokens('jaykk99', ENV), 0);
+    assert.deepEqual(await verifyGatewayToken(first, ENV), { login: 'jaykk99' });
   });
 
   it('rejects junk tokens', async () => {
@@ -201,34 +213,34 @@ function memoryKv() {
 }
 
 describe('gateway tokens on a KV store (Cloudflare runtime)', () => {
-  it('issues, verifies, lists (metadata only) and revokes via KV', async () => {
+  it('issues and verifies via KV without writing anything to it', async () => {
     const kv = memoryKv();
     const KV_ENV = { ...ENV, GATEWAY_KV: kv };
     const token = await issueGatewayToken('jaykk99', KV_ENV);
-    assert.ok(token.startsWith('tc_'));
+    assert.ok(token.startsWith('tc_v1.'));
     assert.deepEqual(await verifyGatewayToken(token, KV_ENV), { login: 'jaykk99' });
 
-    const list = await listGatewayTokens('jaykk99', KV_ENV);
-    assert.equal(list.length, 1);
-    assert.ok(!JSON.stringify(list).includes(token), 'listing must never reveal the token');
-
-    // The KV value holds hashes only — the plaintext never touches the store.
-    assert.ok(!kv.raw().includes(token), 'plaintext token must never touch the store');
-
-    assert.equal(await revokeGatewayTokens('jaykk99', KV_ENV), 1);
-    assert.equal(await verifyGatewayToken(token, KV_ENV), null);
+    // Stateless tokens never touch the store, so listing is empty and
+    // the KV value holds nothing — the store is legacy-only now.
+    assert.equal((await listGatewayTokens('jaykk99', KV_ENV)).length, 0);
+    assert.equal(kv.raw(), '');
+    assert.deepEqual(await verifyGatewayToken(token, KV_ENV), { login: 'jaykk99' });
   });
 
-  it('minting a second token revokes the first (one active token)', async () => {
+  it('minting a second token does not revoke the first, even on KV', async () => {
     const kv = memoryKv();
     const KV_ENV = { ...ENV, GATEWAY_KV: kv };
     const first = await issueGatewayToken('jaykk99', KV_ENV);
     const second = await issueGatewayToken('jaykk99', KV_ENV);
-    assert.equal(await verifyGatewayToken(first, KV_ENV), null);
+    assert.deepEqual(await verifyGatewayToken(first, KV_ENV), { login: 'jaykk99' });
     assert.deepEqual(await verifyGatewayToken(second, KV_ENV), { login: 'jaykk99' });
   });
 
-  it('a failing KV store rejects the mint (the route turns this into JSON 500)', async () => {
+  it('a failing KV store no longer rejects the mint or the verify', async () => {
+    // Regression test for the Pages failure: the old store-backed mint
+    // answered JSON 500 whenever the store threw (or silently lost the
+    // token on a filesystem-less runtime). Stateless tokens must mint
+    // and verify with the store completely dead.
     const brokenKv = {
       async get() {
         throw new Error('KV unavailable');
@@ -240,6 +252,8 @@ describe('gateway tokens on a KV store (Cloudflare runtime)', () => {
         throw new Error('KV unavailable');
       },
     };
-    await assert.rejects(issueGatewayToken('jaykk99', { ...ENV, GATEWAY_KV: brokenKv }));
+    const brokenEnv = { ...ENV, GATEWAY_KV: brokenKv };
+    const token = await issueGatewayToken('jaykk99', brokenEnv);
+    assert.deepEqual(await verifyGatewayToken(token, brokenEnv), { login: 'jaykk99' });
   });
 });

@@ -34,18 +34,20 @@ Project settings (Cloudflare API / dashboard, not wrangler):
   OAuth app exists — `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`
   (secret), `GITHUB_TOKEN` (secret). The OAuth callback is
   `https://termux-code.pages.dev/api/auth/callback`.
-- Gateway token store (REQUIRED for the Mint button to work — without it,
-  minting answers a JSON 500 naming the missing binding instead of
-  minting): a KV namespace bound to the Pages project as `GATEWAY_KV`.
-  KV is free (Workers free tier). Dashboard path: Workers & Pages → KV →
-  Create namespace (e.g. `termux-code-gateway`), then Pages project
-  `termux-code` → Settings → Functions → KV namespace bindings → Add
-  binding, variable name `GATEWAY_KV`, namespace `termux-code-gateway`.
-  Any later deployment picks the binding up automatically; no code or
-  env-var change is needed per deploy. Note the existing API token's
-  scopes (Pages Edit, Zone DNS Edit, Zone Read) do not cover Workers KV,
-  so the namespace + binding are a dashboard step (or a token with
-  Workers KV Storage Edit), not a wrangler step.
+- Gateway token store (OPTIONAL now — minting no longer needs it, since
+  tokens are stateless and signed; see lib/auth.mjs): a KV namespace
+  bound to the Pages project as `GATEWAY_KV` only matters for legacy
+  store-backed tokens. KV is free (Workers free tier). Dashboard path:
+  Workers & Pages → KV → Create namespace (e.g. `termux-code-gateway`),
+  then Pages project `termux-code` → Settings → Functions → KV namespace
+  bindings → Add binding, variable name `GATEWAY_KV`, namespace
+  `termux-code-gateway`. Any later deployment picks the binding up
+  automatically; no code or env-var change is needed per deploy. Note the
+  existing API token's scopes (Pages Edit, Zone DNS Edit, Zone Read) do
+  not cover Workers KV, so the namespace + binding are a dashboard step
+  (or a token with Workers KV Storage Edit), not a wrangler step. To
+  revoke all stateless tokens at once, rotate `GATEWAY_TOKEN_SECRET`
+  (or `SESSION_SECRET`, which the tokens fall back to).
 
 Known runtime differences on Cloudflare:
 
@@ -53,7 +55,8 @@ Known runtime differences on Cloudflare:
   Workers/Pages has no shell. It works in the Docker deployment.
 - Skills are read from the filesystem on Node; on Cloudflare the skills
   directory is not readable, so `list_skills` returns none there.
-- Gateway tokens: the Node/Docker deployment keeps them in `.data/`; on
-  Cloudflare they live in the `GATEWAY_KV` namespace (hashed, one active
-  token per owner, same as the file store). Sign-in sessions are signed
+- Gateway tokens: stateless and signed (HMAC-SHA256, 365-day expiry), so
+  they verify identically on every runtime — no store needed. The
+  Node/Docker deployment and a bound `GATEWAY_KV` namespace only matter
+  for legacy store-backed tokens now. Sign-in sessions are signed
   cookies and work on both runtimes.
