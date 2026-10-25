@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import {
   PROVIDERS,
   directModels,
+  filterKiloFreeModels,
   capabilities,
   resolveModel,
   withCapabilities,
@@ -129,5 +130,35 @@ describe('pollinations (keyless, verified live 2026-10-25)', () => {
     assert.equal(PROVIDERS.pollinations.url, 'https://text.pollinations.ai/openai/v1/chat/completions');
     assert.equal(PROVIDERS.pollinations.auth, 'none');
     assert.equal(PROVIDERS.pollinations.envKey, null);
+  });
+});
+
+describe('kilo live discovery', () => {
+  it('keeps :free and kilo-auto ids, drops paid ids, caps at 12', () => {
+    const rows = [
+      { id: 'nvidia/foo:free', name: 'Foo' },
+      { id: 'kilo-auto/free', name: 'Auto' },
+      { id: 'kilo-auto/efficient', name: 'Auto Efficient (paid-gated, dropped)' },
+      { id: 'anthropic/claude-opus-5.5', name: 'Claude' },
+      { id: 'openai/gpt-6.1-sol', name: 'GPT' },
+      ...Array.from({ length: 15 }, (_, i) => ({ id: `some/model-${i}:free`, name: `M${i}` })),
+    ];
+    const out = filterKiloFreeModels(rows);
+    assert.equal(out.length, 12);
+    assert.ok(out.every((m) => m.provider === 'kilo' && m.free && m.auth === 'none' && m.source === 'direct'));
+    assert.ok(out.some((m) => m.id === 'kilo-auto/free'));
+    assert.ok(!out.some((m) => m.id === 'kilo-auto/efficient'));
+    assert.ok(!out.some((m) => m.id === 'anthropic/claude-opus-5.5'));
+  });
+});
+
+describe('dead model refresh (verified against live lists 2026-10-25)', () => {
+  it('drops kilo and llm7 ids no longer in the live catalogues', () => {
+    const models = directModels(EMPTY_ENV);
+    const byProvider = (p) => models.filter((m) => m.provider === p).map((m) => m.id);
+    assert.ok(!byProvider('kilo').includes('minimax/minimax-m2.7:free'));
+    assert.ok(!byProvider('kilo').includes('minimax/minimax-m3:free'));
+    assert.ok(!byProvider('kilo').includes('stealth/ox-alpha'));
+    assert.ok(!byProvider('llm7').includes('gemini-3.1-flash-lite'));
   });
 });

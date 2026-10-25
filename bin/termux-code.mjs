@@ -351,7 +351,7 @@ async function main() {
     console.log(
       box(
         wrap(
-          'No models are reachable. Kilo, LLM7 and AI Horde need no key at all, so this usually means no network. Set a gateway with /gateway once you have one.',
+          'No models are reachable. Kilo, LLM7, Pollinations and AI Horde need no key at all, so this usually means no network. Set a gateway with /gateway once you have one.',
           width() - 6
         ),
         { title: C.red('no models'), colour: C.red }

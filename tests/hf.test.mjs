@@ -1,6 +1,6 @@
 /**
  * Tests for the `hf` provider — error-inbox's Hugging Face catalog route
- * (lib/llm/adapters.ts shape), Jay's uncensored pool order, keyless gating,
+ * (lib/llm/adapters.ts shape), Jay's uncensored pool order, token gating,
  * HF_MODEL swapping, trusted resolution, and the exact wire shape
  * complete() sends.
  * Run: node --test tests/
@@ -30,13 +30,18 @@ describe('hf provider registration', () => {
     assert.equal(PROVIDERS.hf.envKey, 'HF_TOKEN');
   });
 
-  it('is keyless: on with no env at all', () => {
+  it('is off with no env: api-inference returns empty unauthenticated', () => {
     const models = directModels({}).filter((m) => m.provider === 'hf');
+    assert.equal(models.length, 0);
+  });
+
+  it('is on when HF_TOKEN is set', () => {
+    const models = directModels({ HF_TOKEN: 'x' }).filter((m) => m.provider === 'hf');
     assert.equal(models.length, 6);
   });
 
   it('keeps Jay\u2019s uncensored pool order, HF_MODEL first', () => {
-    const ids = directModels({}).filter((m) => m.provider === 'hf').map((m) => m.id);
+    const ids = directModels({ HF_TOKEN: 'x' }).filter((m) => m.provider === 'hf').map((m) => m.id);
     assert.deepEqual(ids, POOL_ORDER);
   });
 
@@ -45,7 +50,7 @@ describe('hf provider registration', () => {
     delete process.env.HF_MODEL;
     try {
       const fresh = await import('../lib/models.mjs?hf-default-check');
-      const first = fresh.directModels({}).find((m) => m.provider === 'hf');
+      const first = fresh.directModels({ HF_TOKEN: 'x' }).find((m) => m.provider === 'hf');
       assert.equal(first.id, '0bserverx/Qwen3.8-27B-Heretic-Abliterated-Uncensored-GGUF');
     } finally {
       if (saved !== undefined) process.env.HF_MODEL = saved;
@@ -93,7 +98,7 @@ describe('hf completion wire shape (error-inbox adapter parity)', () => {
 
   it('POSTs { inputs, parameters } to /models/{id}, no auth header keyless', async () => {
     responder = async () => jsonRes([{ generated_text: 'user: hi\nassistant: hello there' }]);
-    const model = directModels({}).find((m) => m.provider === 'hf');
+    const model = directModels({ HF_TOKEN: 'x' }).find((m) => m.provider === 'hf');
     const reply = await complete(model, [{ role: 'user', content: 'hi' }], {});
     assert.equal(seen.url, 'https://api-inference.huggingface.co/models/someone/Swapped-Model-GGUF');
     const body = JSON.parse(seen.options.body);
@@ -107,7 +112,7 @@ describe('hf completion wire shape (error-inbox adapter parity)', () => {
 
   it('sends the bearer <redacted> when HF_TOKEN is set, like error-inbox', async () => {
     responder = async () => jsonRes({ generated_text: 'user: hi\nthe answer' });
-    const model = directModels({}).find((m) => m.provider === 'hf');
+    const model = directModels({ HF_TOKEN: 'x' }).find((m) => m.provider === 'hf');
     const reply = await complete(model, [{ role: 'user', content: 'hi' }], { HF_TOKEN: 'hf-token' });
     assert.equal(seen.options.headers.Authorization, 'Bearer hf-token');
     assert.equal(reply.text, 'the answer');
@@ -115,14 +120,14 @@ describe('hf completion wire shape (error-inbox adapter parity)', () => {
 
   it('falls back to HUGGINGFACE_API_KEY, like error-inbox', async () => {
     responder = async () => jsonRes([{ generated_text: 'user: hi\nok' }]);
-    const model = directModels({}).find((m) => m.provider === 'hf');
+    const model = directModels({ HF_TOKEN: 'x' }).find((m) => m.provider === 'hf');
     await complete(model, [{ role: 'user', content: 'hi' }], { HUGGINGFACE_API_KEY: 'hf-alt' });
     assert.equal(seen.options.headers.Authorization, 'Bearer hf-alt');
   });
 
   it('throws the endpoint\u2019s error body instead of swallowing it', async () => {
     responder = async () => jsonRes({ error: 'model is not available' }, false, 404);
-    const model = directModels({}).find((m) => m.provider === 'hf');
+    const model = directModels({ HF_TOKEN: 'x' }).find((m) => m.provider === 'hf');
     await assert.rejects(() => complete(model, [{ role: 'user', content: 'hi' }], {}), /Hugging Face 404/);
   });
 });
