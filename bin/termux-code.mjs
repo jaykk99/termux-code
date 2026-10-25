@@ -223,6 +223,13 @@ async function completeViaGateway(gateway, model, messages, gatewayToken) {
     }
     throw new Error(data.error ? renderError(data.error) : `Gateway returned HTTP ${res.status}.`);
   }
+  // The gateway reply must match local complete()'s shape: turn() pushes
+  // reply.assistantMessage into the history, so a missing field poisons
+  // every later message with an undefined entry (the gateway then 400s
+  // BAD_MESSAGES on all failover attempts). Build it from text when absent.
+  if (!data.assistantMessage) {
+    data.assistantMessage = { role: 'assistant', content: data.text ?? '' };
+  }
   return data;
 }
 

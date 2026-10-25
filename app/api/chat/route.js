@@ -65,7 +65,7 @@ function sanitizeMessages(messages) {
   return clean;
 }
 
-function clampReply(reply) {
+export function clampReply(reply) {
   const text = typeof reply.text === 'string' && reply.text.length > MAX_REPLY_CHARS
     ? reply.text.slice(0, MAX_REPLY_CHARS) + '\n\n… [output truncated at ' + MAX_REPLY_CHARS + ' chars]'
     : reply.text;
@@ -74,7 +74,7 @@ function clampReply(reply) {
     name: String(c.name ?? '').slice(0, 100),
     args: JSON.parse(JSON.stringify(c.args ?? {}).slice(0, 16_384)),
   }));
-  return { ok: true, text, toolCalls, truncated: text !== reply.text, refused: reply.refused === true };
+  return { ok: true, text, toolCalls, truncated: text !== reply.text, refused: reply.refused === true, assistantMessage: { role: 'assistant', content: text } };
 }
 
 export async function POST(req) {
