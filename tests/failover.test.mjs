@@ -9,6 +9,7 @@ import {
   buildFailoverPlan,
   completeWithFailover,
   FailoverError,
+  isTransientError,
   formatAttempts,
   makeAttempt,
   renderError,
@@ -134,7 +135,7 @@ describe('completeWithFailover()', () => {
     let calls = 0;
     const { model, reply, attempts } = await completeWithFailover(models, [], async (m) => {
       calls++;
-      if (m.id === 'bad') throw new Error('kilo 429');
+      if (m.id === 'bad') throw new Error('kilo exploded');
       return replyFor(m);
     });
     assert.equal(calls, 2);
@@ -142,7 +143,7 @@ describe('completeWithFailover()', () => {
     assert.equal(reply.text, 'from good');
     assert.equal(attempts.length, 2);
     assert.equal(attempts[0].ok, false);
-    assert.match(attempts[0].error, /kilo 429/);
+    assert.match(attempts[0].error, /kilo exploded/);
     assert.equal(attempts[1].ok, true);
   });
 
@@ -462,5 +463,70 @@ describe('renderError() — no more "[object Object]"', () => {
     const lines = formatAttempts([a]);
     assert.doesNotMatch(lines[0], /\[object Object\]/);
     assert.match(lines[0], /queue rejected the job/);
+  });
+});
+
+describe('transient retry', () => {
+  it('retries a 429 once, then succeeds', async () => {
+    let calls = 0;
+    const completeFn = async () => {
+      calls += 1;
+      if (calls === 1) throw new Error('429 Too Many Requests');
+      return { text: 'hi', toolCalls: [] };
+    };
+    const { reply, attempts } = await completeWithFailover([M('m1', 'kilo', 'none', true)], [{ role: 'user', content: 'hi' }], completeFn);
+    assert.equal(calls, 2);
+    assert.equal(reply.text, 'hi');
+    assert.equal(attempts.length, 1);
+    assert.equal(attempts[0].ok, true);
+  });
+
+  it('retries a persistent 429 exactly once, then fails over', async () => {
+    let calls = 0;
+    const completeFn = async () => {
+      calls += 1;
+      throw new Error('429 Too Many Requests');
+    };
+    await assert.rejects(
+      completeWithFailover([M('m1', 'kilo', 'none', true)], [{ role: 'user', content: 'hi' }], completeFn),
+      (e) => e instanceof FailoverError
+    );
+    assert.equal(calls, 2);
+  });
+
+  it('does not retry a 400', async () => {
+    let calls = 0;
+    const completeFn = async () => {
+      calls += 1;
+      throw new Error('400 Bad Request');
+    };
+    await assert.rejects(
+      completeWithFailover([M('m1', 'kilo', 'none', true)], [{ role: 'user', content: 'hi' }], completeFn),
+      (e) => e instanceof FailoverError
+    );
+    assert.equal(calls, 1);
+  });
+
+  it('does not retry terminal errors', async () => {
+    let calls = 0;
+    const completeFn = async () => {
+      calls += 1;
+      const e = new Error('NO_KEY');
+      e.terminal = true;
+      throw e;
+    };
+    await assert.rejects(
+      completeWithFailover([M('m1', 'kilo', 'none', true)], [{ role: 'user', content: 'hi' }], completeFn),
+      (e) => e.terminal === true
+    );
+    assert.equal(calls, 1);
+  });
+
+  it('classifies transient errors', () => {
+    assert.equal(isTransientError(new Error('429 Too Many Requests')), true);
+    assert.equal(isTransientError(new Error('Upstream timed out after 45s')), true);
+    assert.equal(isTransientError(new Error('503 Service Unavailable')), true);
+    assert.equal(isTransientError(new Error('400 Bad Request')), false);
+    assert.equal(isTransientError(new Error('401 Unauthorized')), false);
   });
 });
