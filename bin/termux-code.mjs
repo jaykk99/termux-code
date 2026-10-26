@@ -16,7 +16,7 @@ import process from 'node:process';
 import { runTool } from '../lib/tools.mjs';
 import { complete, appendToolResult, SYSTEM_PROMPT, sendToErrorInbox } from '../lib/agent.mjs';
 import { listModels, directModels } from '../lib/models.mjs';
-import { FailureTracker, completeWithFailover, FailoverError, formatAttempts, isUncensoredModel, renderError } from '../lib/failover.mjs';
+import { FailureTracker, completeWithFailover, FailoverError, formatAttempts, gatewayFallbackReason, isUncensoredModel, renderError } from '../lib/failover.mjs';
 import { SessionStore, deriveTitle } from '../lib/sessions.mjs';
 import { cleanMessages } from '../lib/history.mjs';
 import { C, box, banner, toolHeader, toolResult, spinner, pick, wrap, width } from '../lib/tui.mjs';
@@ -399,8 +399,9 @@ async function main() {
   console.log('  ' + sessionHeadline(session));
   console.log(C.dim('  /help for commands · ctrl-c to quit\n'));
 
-  // Once the gateway rejects the token, stay on keyless direct models for
-  // the rest of the session; a fresh /gateway-token re-enables the gateway.
+  // Once the gateway path fails (token rejected, or every provider failed
+  // through it), stay on keyless direct models for the rest of the
+  // session; a fresh /gateway-token re-enables the gateway.
   let gatewayDead = false;
 
   for (;;) {
@@ -642,9 +643,13 @@ async function main() {
     // chosen model once, directly, so a refusal there reached the screen
     // verbatim with the chain unwalked; now the only difference between
     // the modes is where the provider call happens.
-    // If the gateway rejects the token, don't die: fall back to the keyless
+    // If the gateway path fails, don't die: fall back to the keyless
     // direct chain for the rest of the session. Sign-in is never required
-    // to keep chatting.
+    // to keep chatting. Two gateway failures fall back: a terminal token
+    // rejection, and a FailoverError (every provider failed THROUGH the
+    // gateway — a dead host or paused deployment must not end the turn
+    // while the direct chain still works). A fresh session retries the
+    // gateway.
     const gatewayTurn = () => runFailoverTurn(model, models, messages, tracker, (m) => completeViaGateway(cfg.gateway, m, messages, cfg.gatewayToken));
     const directTurn = () => runFailoverTurn(model, models, messages, tracker, (m) => complete(m, messages));
     const completeFn = !cfg.gateway || gatewayDead
@@ -653,9 +658,12 @@ async function main() {
           try {
             return await gatewayTurn();
           } catch (err) {
-            if (err && err.terminal) {
+            const reason = gatewayFallbackReason(err);
+            if (reason) {
               gatewayDead = true;
-              console.log(C.dim('  [gateway] token rejected, falling back to keyless direct models. /gateway-token <t> to re-enable the gateway.\n'));
+              console.log(C.dim(reason === 'terminal'
+                ? '  [gateway] token rejected, falling back to keyless direct models. /gateway-token <t> to re-enable the gateway.\n'
+                : '  [gateway] all providers failed through the gateway, falling back to keyless direct models.\n'));
               return await directTurn();
             }
             throw err;

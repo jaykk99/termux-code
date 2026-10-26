@@ -9,6 +9,7 @@ import {
   buildFailoverPlan,
   completeWithFailover,
   FailoverError,
+  gatewayFallbackReason,
   isTransientError,
   formatAttempts,
   makeAttempt,
@@ -551,5 +552,28 @@ describe('pinFirst', () => {
       return { text: 'ok', toolCalls: [] };
     }, null, { pinFirst: { id: 'nope', provider: 'nope' } });
     assert.deepEqual(calls, ['a']);
+  });
+});
+
+describe('gatewayFallbackReason()', () => {
+  it('terminal token rejection falls back', () => {
+    const err = new Error('NO_KEY');
+    err.terminal = true;
+    assert.equal(gatewayFallbackReason(err), 'terminal');
+  });
+
+  it('FailoverError (every provider failed through the gateway) falls back', () => {
+    assert.equal(gatewayFallbackReason(new FailoverError('All failed', [])), 'failover');
+  });
+
+  it('a lone transport error does not fall back', () => {
+    assert.equal(gatewayFallbackReason(new Error('fetch failed')), null);
+  });
+
+  it('null and terminal:false do not fall back', () => {
+    assert.equal(gatewayFallbackReason(null), null);
+    const err = new Error('x');
+    err.terminal = false;
+    assert.equal(gatewayFallbackReason(err), null);
   });
 });
