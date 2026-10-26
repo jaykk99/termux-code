@@ -1,3 +1,5 @@
+Live: https://termux-code.pages.dev
+
 # termux-code
 
 A coding agent that runs in Termux on Android, backed by the same 19-provider
@@ -60,7 +62,7 @@ its own settings page makes.
 
 ```sh
 pkg install nodejs git
-curl -fsSL https://termux-code.vercel.app/install.sh | bash
+curl -fsSL https://termux-code.pages.dev/install.sh | bash
 cd ~/projects/whatever
 termux-code
 ```
