@@ -14,6 +14,7 @@ import os from 'node:os';
 import process from 'node:process';
 
 import { runTool } from '../lib/tools.mjs';
+import { isGatewayTool, executeGatewayTool } from '../lib/gateway-tools.mjs';
 import { complete, appendToolResult, SYSTEM_PROMPT, sendToErrorInbox } from '../lib/agent.mjs';
 import { isGreeting, greetingReply, shouldRefuseToolCall } from '../lib/chatty.mjs';
 import { listModels, directModels } from '../lib/models.mjs';
@@ -257,7 +258,7 @@ async function runFailoverTurn(model, models, messages, tracker, completeOne) {
   return reply;
 }
 
-async function turn(model, messages, rl, root, completeFn) {
+async function turn(model, messages, rl, root, completeFn, gateway = {}) {
   for (let step = 0; step < MAX_STEPS; step++) {
     const spin = spinner(step === 0 ? 'Thinking' : 'Working');
     let reply;
@@ -290,7 +291,7 @@ async function turn(model, messages, rl, root, completeFn) {
     if (!reply.toolCalls.length) return;
 
     for (const call of reply.toolCalls) {
-      const arg = call.args.path || call.args.command || call.args.pattern || '';
+      const arg = call.args.path || call.args.command || call.args.pattern || call.args.tool_slug || call.args.query || '';
       console.log('\n' + toolHeader(call.name, arg));
       // Refuse an identity lookup nobody asked for before it ever reaches
       // approval or execution: a greeting must never turn into an IP
@@ -308,10 +309,30 @@ async function turn(model, messages, rl, root, completeFn) {
       let result;
       let ok = true;
       try {
-        result = await runTool(call.name, call.args, {
-          root,
-          approve: (d, detail) => approve(rl, d, detail),
-        });
+        // Composio tools run server-side through the gateway, where the
+        // Composio key lives — never on the phone, which holds no key.
+        // Everything else runs locally exactly as before. A remote app
+        // action gets the same yes/no approval as a local write or shell
+        // command, because its side effects live outside the phone.
+        if (isGatewayTool(call.name)) {
+          const preview = JSON.stringify(call.args ?? {}, null, 1).slice(0, 800);
+          const allowed = await approve(rl, `Composio → ${call.name}`, preview);
+          if (!allowed) {
+            result = 'Declined by the user. Ask what they would prefer instead.';
+          } else {
+            result = await executeGatewayTool({
+              gateway: gateway.gateway,
+              gatewayToken: gateway.gatewayToken,
+              name: call.name,
+              args: call.args,
+            });
+          }
+        } else {
+          result = await runTool(call.name, call.args, {
+            root,
+            approve: (d, detail) => approve(rl, d, detail),
+          });
+        }
       } catch (err) {
         result = `Error: ${err.message}`;
         ok = false;
@@ -697,7 +718,7 @@ async function main() {
             throw err;
           }
         };
-    await turn(model, messages, rl, root, completeFn);
+    await turn(model, messages, rl, root, completeFn, { gateway: cfg.gateway, gatewayToken: cfg.gatewayToken });
     await persist();
     console.log('');
   }
