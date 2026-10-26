@@ -20,7 +20,7 @@
     "build:cf": "node scripts/patch-next-node-crypto.mjs && opennextjs-cloudflare build && node scripts/rewrite-worker-requires.mjs",
     "start": "next start",
     "cli": "node ./bin/termux-code.mjs",
-    "test": "node --test tests/http.test.mjs tests/models.test.mjs tests/failover.test.mjs tests/refusal.test.mjs tests/sessions.test.mjs tests/hf.test.mjs tests/auth.test.mjs tests/server-tools.test.mjs tests/gate.test.mjs tests/history.test.mjs tests/gateway-chat.test.mjs tests/patch-next-node-crypto.test.mjs tests/rewrite-worker-requires.test.mjs tests/horde.test.mjs"
+    "test": "node --test tests/http.test.mjs tests/models.test.mjs tests/failover.test.mjs tests/refusal.test.mjs tests/sessions.test.mjs tests/hf.test.mjs tests/auth.test.mjs tests/server-tools.test.mjs tests/gate.test.mjs tests/history.test.mjs tests/gateway-chat.test.mjs tests/patch-next-node-crypto.test.mjs tests/rewrite-worker-requires.test.mjs tests/horde.test.mjs tests/chatty.test.mjs"
   },
   "dependencies": {
     "next": "^15.0.0",

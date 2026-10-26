@@ -15,6 +15,7 @@ import process from 'node:process';
 
 import { runTool } from '../lib/tools.mjs';
 import { complete, appendToolResult, SYSTEM_PROMPT, sendToErrorInbox } from '../lib/agent.mjs';
+import { isGreeting, greetingReply, shouldRefuseToolCall } from '../lib/chatty.mjs';
 import { listModels, directModels } from '../lib/models.mjs';
 import { FailureTracker, completeWithFailover, FailoverError, formatAttempts, gatewayFallbackReason, isUncensoredModel, renderError } from '../lib/failover.mjs';
 import { SessionStore, deriveTitle } from '../lib/sessions.mjs';
@@ -291,6 +292,19 @@ async function turn(model, messages, rl, root, completeFn) {
     for (const call of reply.toolCalls) {
       const arg = call.args.path || call.args.command || call.args.pattern || '';
       console.log('\n' + toolHeader(call.name, arg));
+      // Refuse an identity lookup nobody asked for before it ever reaches
+      // approval or execution: a greeting must never turn into an IP
+      // fetch, no matter what the model decided to call.
+      const latestUser = [...messages]
+        .reverse()
+        .find((m) => m.role === 'user' && typeof m.content === 'string')?.content || '';
+      if (shouldRefuseToolCall(call, latestUser)) {
+        const refusal =
+          'Refused: that command fetches your public IP or location from an outside service, and you did not ask for it. Answer in plain text instead, and ask what the user wants to work on.';
+        console.log(toolResult(refusal, { ok: false }));
+        appendToolResult(messages, model, call, refusal);
+        continue;
+      }
       let result;
       let ok = true;
       try {
@@ -630,6 +644,20 @@ async function main() {
 
     if (input.startsWith('/')) {
       console.log(C.dim(`  Unknown command. /help for the list.\n`));
+      continue;
+    }
+
+    // A bare greeting never reaches the model: small free models invent
+    // jobs for themselves when handed tools and silence ("let me grab
+    // your IP"), so answer conversationally and ask what comes next.
+    // Zero tool calls, by construction — no completion happens at all.
+    if (isGreeting(input)) {
+      const reply = greetingReply();
+      messages.push({ role: 'user', content: input });
+      messages.push({ role: 'assistant', content: reply });
+      console.log('\n' + wrap(reply, width() - 2).join('\n'));
+      await persist();
+      console.log('');
       continue;
     }
 
