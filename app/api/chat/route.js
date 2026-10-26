@@ -2,6 +2,7 @@ import { complete } from '../../../lib/agent.mjs';
 import { resolveModel } from '../../../lib/models.mjs';
 import { readJSON, bad, upstreamError, logRequest } from '../../../lib/http.mjs';
 import { gatewayAccess } from '../../../lib/auth.mjs';
+import { cleanToolCalls } from '../../../lib/history.mjs';
 import { composioToolsForOpenAI, composioToolsForAnthropic } from '../../../lib/server-tools.mjs';
 
 export const runtime = 'nodejs';
@@ -34,7 +35,7 @@ function messageChars(m) {
   return JSON.stringify(m.content ?? '').length;
 }
 
-function sanitizeMessages(messages) {
+export function sanitizeMessages(messages) {
   if (!Array.isArray(messages)) throw bad('BAD_MESSAGES', 'messages must be an array.', 400);
   if (messages.length === 0) throw bad('BAD_MESSAGES', 'messages must not be empty.', 400);
   if (messages.length > MAX_MESSAGES) {
@@ -57,6 +58,14 @@ function sanitizeMessages(messages) {
     }
     const out = { role: m.role };
     if (m.content !== undefined) out.content = m.content;
+    if (m.role === 'assistant') {
+      // Keep the calls: a tool result without the assistant call that
+      // issued it is orphaned, and providers reject it. The phone used
+      // to strip these on every send, so any session with tool history
+      // failed its next gateway turn.
+      const toolCalls = cleanToolCalls(m.tool_calls);
+      if (toolCalls) out.tool_calls = toolCalls;
+    }
     if (m.role === 'tool') {
       out.tool_call_id = String(m.tool_call_id ?? '');
       if (m.name !== undefined) out.name = String(m.name).slice(0, 100);
@@ -91,7 +100,27 @@ export function clampReply(reply) {
     name: String(c.name ?? '').slice(0, 100),
     args: JSON.parse(JSON.stringify(c.args ?? {}).slice(0, 16_384)),
   }));
-  return { ok: true, text, toolCalls, truncated: text !== reply.text, refused: reply.refused === true, assistantMessage: { role: 'assistant', content: text } };
+  // The phone pushes assistantMessage straight into history, so it must
+  // carry the linkage the next turn's tool results refer to. A text-only
+  // assistant message used to orphan every tool result in gateway mode:
+  // the follow-up completion then failed at the provider. Anthropic
+  // turns keep their native blocks (tool_use included); OpenAI-shaped
+  // turns rebuild tool_calls from the tool calls themselves.
+  let assistantMessage;
+  const native = reply.assistantMessage;
+  if (native && Array.isArray(native.content)) {
+    assistantMessage = { role: 'assistant', content: native.content };
+  } else {
+    assistantMessage = { role: 'assistant', content: text };
+    if (toolCalls.length) {
+      assistantMessage.tool_calls = toolCalls.map((c) => ({
+        id: c.id,
+        type: 'function',
+        function: { name: c.name, arguments: JSON.stringify(c.args ?? {}) },
+      }));
+    }
+  }
+  return { ok: true, text, toolCalls, truncated: text !== reply.text, refused: reply.refused === true, assistantMessage };
 }
 
 export async function POST(req) {

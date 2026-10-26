@@ -20,7 +20,7 @@ import { isGreeting, greetingReply, shouldRefuseToolCall } from '../lib/chatty.m
 import { listModels, directModels } from '../lib/models.mjs';
 import { FailureTracker, completeWithFailover, FailoverError, formatAttempts, gatewayFallbackReason, isUncensoredModel, renderError } from '../lib/failover.mjs';
 import { SessionStore, deriveTitle } from '../lib/sessions.mjs';
-import { cleanMessages } from '../lib/history.mjs';
+import { cleanMessages, trimForGateway } from '../lib/history.mjs';
 import { C, box, banner, toolHeader, toolResult, spinner, pick, wrap, width } from '../lib/tui.mjs';
 
 const CONFIG_DIR = path.join(os.homedir(), '.termux-code');
@@ -113,8 +113,14 @@ async function saveHistory(rl) {
   }
 }
 
-/** Resume the most recent session, or start a fresh one. */
+/** Resume the most recent session with a real conversation, or start fresh. */
 async function resumeSession(store) {
+  // A just-created empty session (from a /new followed by an immediate
+  // quit) used to hijack the next startup and bury the conversation Jay
+  // was actually in. Skip empties; fall back to the newest session only
+  // when every session is empty.
+  const nonEmpty = await store.newestNonEmpty();
+  if (nonEmpty) return nonEmpty;
   const sessions = await store.list();
   if (sessions.length) {
     const loaded = await store.load(sessions[0].id);
@@ -209,7 +215,7 @@ async function completeViaGateway(gateway, model, messages, gatewayToken) {
       'Content-Type': 'application/json',
       ...(gatewayToken ? { Authorization: `Bearer ${gatewayToken}` } : {}),
     },
-    body: JSON.stringify({ model, messages: cleanMessages(messages) }),
+    body: JSON.stringify({ model, messages: trimForGateway(messages) }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.error) {
@@ -410,7 +416,9 @@ async function main() {
     ? cleanedSession
     : [{ role: 'system', content: SYSTEM_PROMPT }];
 
-  /** Persist the conversation without ever breaking the loop. */
+  /** Persist the conversation without ever breaking the loop. A failed
+   *  save is no longer silent: if the phone can't write, Jay should know
+   *  his turns may not survive a restart. */
   const persist = async () => {
     try {
       if (session.meta.title === 'untitled') {
@@ -418,8 +426,8 @@ async function main() {
         if (title !== 'untitled') session.meta = await store.rename(session.meta.id, title);
       }
       session.meta = await store.save(session.meta.id, messages);
-    } catch {
-      /* persistence is best-effort; the chat continues */
+    } catch (err) {
+      console.log(C.dim(`  [sessions] could not save this turn (${err?.message || err}); chatting continues, but a restart may lose it.\n`));
     }
   };
 
@@ -683,6 +691,10 @@ async function main() {
     }
 
     messages.push({ role: 'user', content: input });
+    // Save the user's message BEFORE the turn runs: if Termux is killed
+    // mid-turn, the old code only persisted after turn() returned, so the
+    // whole last message vanished. Now a restart re-answers it instead.
+    await persist();
     // A configured gateway holds the provider keys server-side (that's the
     // whole point of the deployment); without one, call providers directly
     // from the phone, which still works for the keyless providers. BOTH

@@ -64,6 +64,27 @@ describe('SessionStore', () => {
     assert.equal((await store.load(id)).meta.title, 'new title');
   });
 
+  it('rename does not bump updated, so it cannot hijack resume order', async () => {
+    const a = await store.create('a');
+    await store.append(a.id, [MSG('user', 'real chat')]);
+    await new Promise((r) => setTimeout(r, 5));
+    const b = await store.create('b');
+    await store.append(b.id, [MSG('user', 'newer chat')]);
+    await store.rename(a.id, 'renamed old');
+    const list = await store.list();
+    assert.equal(list[0].id, b.id);
+  });
+
+  it('newestNonEmpty skips empty sessions and returns null when all are empty', async () => {
+    const a = await store.create('real');
+    await store.append(a.id, [MSG('user', 'hi')]);
+    await store.create('empty just made');
+    const picked = await store.newestNonEmpty();
+    assert.equal(picked.meta.id, a.id);
+    await store.delete(a.id);
+    assert.equal(await store.newestNonEmpty(), null);
+  });
+
   it('deletes a session, false when missing', async () => {
     const { id } = await store.create('x');
     assert.equal(await store.delete(id), true);
@@ -140,6 +161,17 @@ describe('compact()', () => {
     const out = compact(msgs);
     assert.equal(out[0].role, 'system');
     assert.ok(out.length < 500);
+  });
+
+  it('never starts the kept window with an orphaned tool result', () => {
+    const msgs = [MSG('system', 'sys'), ...Array.from({ length: 199 }, (_, i) => MSG('user', `u${i}`))];
+    msgs.push({ role: 'assistant', content: null, tool_calls: [{ id: 'c0', type: 'function', function: { name: 'bash', arguments: '{}' } }] });
+    msgs.push({ role: 'tool', tool_call_id: 'c0', name: 'bash', content: 'out' });
+    for (let i = 0; i < 199; i++) msgs.push(MSG('user', `tail${i}`));
+    const out = compact(msgs);
+    const firstKept = out.find((m) => m.role !== 'system' && !String(m.content).includes('session compacted'));
+    assert.notEqual(firstKept.role, 'tool');
+    assert.ok(String(out.find((m) => String(m.content).includes('session compacted')).content).includes('dropped'));
   });
 });
 
