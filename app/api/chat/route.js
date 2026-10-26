@@ -2,6 +2,7 @@ import { complete } from '../../../lib/agent.mjs';
 import { resolveModel } from '../../../lib/models.mjs';
 import { readJSON, bad, upstreamError, logRequest } from '../../../lib/http.mjs';
 import { gatewayAccess } from '../../../lib/auth.mjs';
+import { composioToolsForOpenAI, composioToolsForAnthropic } from '../../../lib/server-tools.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -65,6 +66,22 @@ function sanitizeMessages(messages) {
   return clean;
 }
 
+/**
+ * Extra tools the gateway offers the phone's model, on top of the phone's
+ * local filesystem tools (which lib/agent.mjs always includes). Only the
+ * Composio pair: they execute server-side via /api/tools/execute, where
+ * COMPOSIO_API_KEY lives, so the key never reaches the phone. OpenAI-shaped
+ * models get the OpenAI shape, Anthropic models the Anthropic shape;
+ * text-only models (Gemini, Cohere, Horde, HF) get nothing, because
+ * lib/agent.mjs never sends them tools at all. The phone dispatches these
+ * two names back to the gateway instead of running them locally.
+ */
+export function gatewayExtraTools(model) {
+  if (model?.auth === 'anthropic') return composioToolsForAnthropic();
+  if (model?.auth === 'bearer' || model?.auth === 'none') return composioToolsForOpenAI();
+  return [];
+}
+
 export function clampReply(reply) {
   const text = typeof reply.text === 'string' && reply.text.length > MAX_REPLY_CHARS
     ? reply.text.slice(0, MAX_REPLY_CHARS) + '\n\n… [output truncated at ' + MAX_REPLY_CHARS + ' chars]'
@@ -117,7 +134,7 @@ export async function POST(req) {
   }
 
   try {
-    const reply = await complete(model, messages);
+    const reply = await complete(model, messages, process.env, gatewayExtraTools(model));
     const res = Response.json(clampReply(reply));
     logRequest(req, 200, Date.now() - started, `model=${model.provider}/${model.id}`);
     return res;
