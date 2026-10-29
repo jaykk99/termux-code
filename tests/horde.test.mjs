@@ -87,4 +87,79 @@ describe('callHorde() via complete()', () => {
     assert.equal(seenSubmit.models, undefined);
     assert.equal(reply.text, 'hello any');
   });
+
+  const errRes = (status, body) => ({
+    ok: false,
+    status,
+    text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
+    json: async () => (typeof body === 'string' ? {} : body),
+  });
+
+  it('retries unrestricted when the models-restricted submit is gated (403 KudosUpfront)', async () => {
+    const submits = [];
+    responder = async (url, options) => {
+      if (url.includes('/status/models')) {
+        return jsonRes([{ name: 'koboldcpp/L3-8B-Stheno-v3.2-GGUF', count: 1, eta: 0 }]);
+      }
+      if (url.endsWith('/async')) {
+        const body = JSON.parse(options.body);
+        submits.push(body);
+        if (body.models) return errRes(403, { message: 'This request requires upfront kudos', rc: 'KudosUpfront' });
+        return jsonRes({ id: 'job3' });
+      }
+      return jsonRes({ done: true, generations: [{ text: 'hello unrestricted' }] });
+    };
+    const reply = await complete(hordeModel, [{ role: 'user', content: 'say hi' }], {});
+    assert.equal(submits.length, 2);
+    assert.deepEqual(submits[0].models, ['koboldcpp/L3-8B-Stheno-v3.2-GGUF']);
+    assert.equal(submits[1].models, undefined);
+    assert.equal(reply.text, 'hello unrestricted');
+  });
+
+  it('surfaces Horde\'s own rc and message when every submit rung fails', async () => {
+    responder = async (url) => {
+      if (url.includes('/status/models')) return jsonRes([]);
+      if (url.endsWith('/async')) return errRes(403, { message: 'This request requires upfront kudos', rc: 'KudosUpfront' });
+      throw new Error('poll must not happen after a failed submit');
+    };
+    await assert.rejects(
+      () => complete(hordeModel, [{ role: 'user', content: 'say hi' }], {}),
+      (err) => {
+        assert.match(err.message, /Horde 403 \(KudosUpfront\): This request requires upfront kudos/);
+        assert.equal(err.status, 403);
+        assert.equal(err.rc, 'KudosUpfront');
+        return true;
+      },
+    );
+  });
+
+  it('retries as anonymous when a configured API key is rejected', async () => {
+    const submitKeys = [];
+    responder = async (url, options) => {
+      if (url.includes('/status/models')) return jsonRes([]);
+      if (url.endsWith('/async')) {
+        submitKeys.push(options.headers.apikey);
+        if (options.headers.apikey !== '0000000000') {
+          return errRes(401, { message: 'No user matching sent API Key.', rc: 'InvalidAPIKey' });
+        }
+        return jsonRes({ id: 'job4' });
+      }
+      return jsonRes({ done: true, generations: [{ text: 'hello anonymous' }] });
+    };
+    const reply = await complete(hordeModel, [{ role: 'user', content: 'say hi' }], { AIHORDE_API_KEY: 'stale-key-value' });
+    assert.deepEqual(submitKeys, ['stale-key-value', '0000000000']);
+    assert.equal(reply.text, 'hello anonymous');
+  });
+
+  it('fails fast on a faulted job instead of polling until the deadline', async () => {
+    responder = async (url) => {
+      if (url.includes('/status/models')) return jsonRes([]);
+      if (url.endsWith('/async')) return jsonRes({ id: 'job5' });
+      return jsonRes({ done: false, faulted: true, generations: [] });
+    };
+    await assert.rejects(
+      () => complete(hordeModel, [{ role: 'user', content: 'say hi' }], {}),
+      /Horde: job faulted in the queue/,
+    );
+  });
 });
