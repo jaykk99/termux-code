@@ -11,13 +11,22 @@ import {
   FailoverError,
   gatewayFallbackReason,
   isTransientError,
+  isBadModelError,
+  parseRetryAfterMs,
   formatAttempts,
   makeAttempt,
   renderError,
   FAILURES_TO_TRIP,
 } from '../lib/failover.mjs';
 
+// Fixtures are uncensored-lineage by default (label marker): the plan is
+// uncensored-only now, so a neutral fixture would be filtered out before
+// any ordering/failover behaviour could be tested. Tests that need an
+// ALIGNED model build it with alignedM(), whose label carries no marker.
 const M = (id, provider, auth, free = false, disabled = false) => ({
+  id, provider, auth, free, disabled, source: 'direct', label: `${id} uncensored`,
+});
+const alignedM = (id, provider, auth, free = false, disabled = false) => ({
   id, provider, auth, free, disabled, source: 'direct', label: id,
 });
 
@@ -80,34 +89,37 @@ describe('buildFailoverPlan()', () => {
     assert.ok(ids.indexOf('horde-x') > ids.indexOf('groq-x'));
   });
 
-  it('tries uncensored-lineage models before every aligned model', () => {
+  it('drops aligned models from the plan entirely — they are not a fallback tier', () => {
     const models = [
-      M('kilo-x', 'kilo', 'none', true),
-      M('gpt-4o-mini', 'githubmodels', 'bearer'),
+      alignedM('kilo-x', 'kilo', 'none', true),
+      alignedM('gpt-4o-mini', 'githubmodels', 'bearer'),
       M('0bserverx/Qwen3.8-27B-Heretic-Abliterated-Uncensored-GGUF', 'hf', 'hf', true),
       M('gateway-uncensored-1', 'gatewayx', 'bearer'),
-      M('gemini-x', 'gemini', 'gemini'),
+      alignedM('gemini-x', 'gemini', 'gemini'),
     ];
     const ids = buildFailoverPlan(models).map((m) => m.id);
-    // A keyed uncensored-marked model (tool-capable) leads, the HF
-    // Heretic pool next, and only then the aligned pool in its order.
-    assert.equal(ids[0], 'gateway-uncensored-1');
-    assert.equal(ids[1], '0bserverx/Qwen3.8-27B-Heretic-Abliterated-Uncensored-GGUF');
-    assert.ok(ids.indexOf('kilo-x') > ids.indexOf(ids[1]));
-    assert.ok(ids.indexOf('gpt-4o-mini') > ids.indexOf('kilo-x') || ids.indexOf('gpt-4o-mini') > 1);
-    assert.equal(ids[ids.length - 1], 'gemini-x');
+    // Only the uncensored candidates remain, in capability order: the
+    // tool-capable keyed one first, the chat-only HF pool entry second.
+    // The aligned models are absent, not ranked last.
+    assert.deepEqual(ids, [
+      'gateway-uncensored-1',
+      '0bserverx/Qwen3.8-27B-Heretic-Abliterated-Uncensored-GGUF',
+    ]);
   });
 
-  it('an aligned model on a keyed gateway provider does not get the uncensored rank', () => {
+  it('an aligned model on a keyed gateway provider never enters the plan', () => {
     const models = [
-      M('glm-5.2', 'gatewayx', 'bearer'),
+      alignedM('glm-5.2', 'gatewayx', 'bearer'),
       M('DavidAU/Llama-3.2-8X3B-MOE-Dark-Champion-Instruct-uncensored-abliterated-18.4B-GGUF', 'hf', 'hf', true),
-      M('kilo-x', 'kilo', 'none', true),
+      alignedM('kilo-x', 'kilo', 'none', true),
     ];
     const ids = buildFailoverPlan(models).map((m) => m.id);
-    assert.equal(ids[0], 'DavidAU/Llama-3.2-8X3B-MOE-Dark-Champion-Instruct-uncensored-abliterated-18.4B-GGUF');
-    assert.ok(ids.indexOf('glm-5.2') > 0);
-    assert.ok(ids.indexOf('kilo-x') > 0);
+    assert.deepEqual(ids, ['DavidAU/Llama-3.2-8X3B-MOE-Dark-Champion-Instruct-uncensored-abliterated-18.4B-GGUF']);
+  });
+
+  it('returns an empty plan when every candidate is aligned', () => {
+    const models = [alignedM('gpt-4o-mini', 'githubmodels', 'bearer'), alignedM('claude-x', 'anthropic', 'anthropic')];
+    assert.deepEqual(buildFailoverPlan(models), []);
   });
 
   it('demotes providers in cooldown to the back of their tier', () => {
@@ -575,5 +587,99 @@ describe('gatewayFallbackReason()', () => {
     const err = new Error('x');
     err.terminal = false;
     assert.equal(gatewayFallbackReason(err), null);
+  });
+});
+
+describe('BAD_MODEL blacklisting — a stale id costs one failure per session', () => {
+  const BAD = 'Kilo 400: {"code":"BAD_MODEL","message":"Unknown model. Pick one from /api/models."}';
+  const replyFor = (model) => ({ text: `from ${model.id}`, toolCalls: [], assistantMessage: { role: 'assistant', content: 'x' } });
+
+  it('classifies provider unknown-model rejections, and nothing else', () => {
+    assert.equal(isBadModelError(new Error(BAD)), true);
+    assert.equal(isBadModelError(new Error('Unknown model: foo/bar')), true);
+    assert.equal(isBadModelError({ error: { code: 'model_not_found', message: 'no such model' } }), true);
+    assert.equal(isBadModelError(new Error('The model `x` does not exist')), true);
+    assert.equal(isBadModelError(new Error('429 Too Many Requests')), false);
+    assert.equal(isBadModelError(new Error('404 Not Found')), false);
+    assert.equal(isBadModelError(new Error('file not found: config.json')), false);
+    assert.equal(isBadModelError(new Error('fetch failed')), false);
+  });
+
+  it('is not transient — an unknown model never earns a same-model retry', () => {
+    assert.equal(isTransientError(new Error(BAD)), false);
+  });
+
+  it('blacklists the model after one rejection and never calls it again', async () => {
+    const tr = new FailureTracker();
+    const sessionBadModels = new Set();
+    const models = [M('stale', 'kilo', 'none'), M('good', 'llm7', 'none')];
+    const calls = [];
+    const completeFn = async (m) => {
+      calls.push(m.id);
+      if (m.id === 'stale') throw new Error(BAD);
+      return replyFor(m);
+    };
+    const opts = { sessionBadModels };
+
+    const first = await completeWithFailover(models, [], completeFn, tr, opts);
+    assert.equal(first.model.id, 'good');
+    assert.deepEqual(calls, ['stale', 'good']);
+    assert.ok(tr.isBadModel('kilo', 'stale'));
+    assert.ok(sessionBadModels.has('kilo/stale'));
+    // The provider itself is NOT blamed: a stale id must not cool down
+    // or count against the provider's circuit breaker.
+    assert.equal(tr.failures('kilo'), 0);
+
+    // Second turn, same session state: the blacklisted model is not
+    // even attempted — no call is spent on it.
+    calls.length = 0;
+    const second = await completeWithFailover(models, [], completeFn, tr, opts);
+    assert.equal(second.model.id, 'good');
+    assert.deepEqual(calls, ['good']);
+    assert.equal(second.attempts.length, 1);
+  });
+
+  it('buildFailoverPlan excludes tracker-blacklisted models', () => {
+    const tr = new FailureTracker();
+    tr.recordBadModel('kilo', 'stale');
+    const plan = buildFailoverPlan([M('stale', 'kilo', 'none'), M('good', 'kilo', 'none')], tr);
+    assert.deepEqual(plan.map((m) => m.id), ['good']);
+  });
+
+  it('reset() clears the blacklist with the rest of the tracker state', () => {
+    const tr = new FailureTracker();
+    tr.recordBadModel('kilo', 'stale');
+    tr.reset();
+    assert.equal(tr.isBadModel('kilo', 'stale'), false);
+    assert.deepEqual(tr.badModelList(), []);
+  });
+});
+
+describe('retry-after parsing and pacing', () => {
+  it('parses Retry-After style hints in seconds, minutes, and ms', () => {
+    assert.equal(parseRetryAfterMs(new Error('429 (retry-after: 30)')), 30_000);
+    assert.equal(parseRetryAfterMs(new Error('Retry-After: 2')), 2_000);
+    assert.equal(parseRetryAfterMs(new Error('Too many requests. Try again in 1324s.')), 1_324_000);
+    assert.equal(parseRetryAfterMs(new Error('rate limited, wait 2 minutes')), 120_000);
+    assert.equal(parseRetryAfterMs(new Error('quota exceeded, try again in 500ms')), 500);
+  });
+
+  it('returns null when the error carries no usable hint', () => {
+    assert.equal(parseRetryAfterMs(new Error('429 Too Many Requests')), null);
+    assert.equal(parseRetryAfterMs(new Error('502 Bad Gateway')), null);
+    assert.equal(parseRetryAfterMs(new Error('fetch failed')), null);
+  });
+
+  it('paces the next candidate on a short retry-after instead of hammering', async () => {
+    const models = [M('limited', 'kilo', 'none'), M('good', 'llm7', 'none')];
+    const started = Date.now();
+    const { model, attempts } = await completeWithFailover(models, [], async (m) => {
+      if (m.id === 'limited') throw new Error('429 Too Many Requests (retry-after: 1)');
+      return { text: 'from good', toolCalls: [], assistantMessage: {} };
+    });
+    const elapsed = Date.now() - started;
+    assert.equal(model.id, 'good');
+    assert.equal(attempts.length, 2);
+    assert.ok(elapsed >= 900, `expected the chain to honour the 1s retry-after, took ${elapsed}ms`);
   });
 });

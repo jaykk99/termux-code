@@ -161,6 +161,18 @@ it uses today. Three sources merge in `/api/models`:
    route backing error-inbox's own model switcher, including real recent
    success/fail counts and current pin/disable state.
 
+All three sources pass through one filter before anything is listed or
+run: **uncensored models only**. Aligned models (GPT, Claude, Gemini and
+the other RLHF flagships) never appear in `/api/models`, the phone's
+picker, or the failover chain. The policy lives in one owner-editable
+file, `lib/uncensored.mjs` — a curated provider pool (`hf`), id/label
+markers for the uncensored lineages (Heretic, Dolphin, Stheno,
+Rocinante, abliterated builds), and a short exact allowlist. A model a
+provider rejects as unknown (BAD_MODEL) is blacklisted for the session
+after the first rejection instead of being retried every turn, and
+rate-limit retry-after hints pace the chain instead of being hammered
+through.
+
 ## Request shapes, per provider
 
 Most of the 19 are one OpenAI-compatible `chat/completions` shape with a

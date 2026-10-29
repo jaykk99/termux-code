@@ -81,6 +81,14 @@ describe('run_terminal', () => {
     }
   });
 
+  it('a bare grep with no file target returns at once, not after the 30s timeout', async () => {
+    const started = Date.now();
+    const out = await runServerTool('run_terminal', { command: 'grep needle' }, ctx());
+    const elapsed = Date.now() - started;
+    assert.ok(elapsed < 10_000, `bare grep took ${elapsed}ms — stdin is open again`);
+    assert.ok(out.startsWith('exit 1'), out); // EOF on stdin: no match, exit 1
+  });
+
   it('does NOT leak provider keys into the terminal environment', async () => {
     process.env[COMPOSIO_ENV_NAME] = COMPOSIO_KEY;
     try {

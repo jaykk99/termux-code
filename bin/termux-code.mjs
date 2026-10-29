@@ -60,6 +60,13 @@ function gatewayHeaders(cfg) {
 }
 
 async function loadCatalogue(cfg) {
+  // Uncensored-only, enforced on the phone too (lib/uncensored.mjs): the
+  // gateway's /api/models applies the same filter server-side, but the
+  // CLI never trusts a catalogue it is handed — a gateway at any URL
+  // could return aligned models, and they must not become pickable or
+  // runnable here. Local discovery is filtered at the source already;
+  // the extra pass costs nothing.
+  const onlyUncensored = (list) => (Array.isArray(list) ? list.filter(isUncensoredModel) : []);
   if (cfg.gateway) {
     try {
       const res = await fetch(cfg.gateway.replace(/\/$/, '') + '/api/models', {
@@ -67,7 +74,8 @@ async function loadCatalogue(cfg) {
       });
       if (res.ok) {
         const data = await res.json();
-        if (data.models?.length) return data.models;
+        const models = onlyUncensored(data.models);
+        if (models.length) return models;
       }
     } catch {
       /* fall through to local discovery */
@@ -75,7 +83,7 @@ async function loadCatalogue(cfg) {
   }
   try {
     const local = await listModels();
-    if (local.length) return local;
+    if (local.length) return onlyUncensored(local);
   } catch {
     /* ignore */
   }
@@ -248,12 +256,13 @@ async function completeViaGateway(gateway, model, messages, gatewayToken) {
  * then keyed, then chat-only, cooling-down providers last). Failed attempts
  * print one dim line each so a flapping provider is visible, not silent.
  */
-async function runFailoverTurn(model, models, messages, tracker, completeOne) {
+async function runFailoverTurn(model, models, messages, tracker, completeOne, sessionBadModels) {
   const rest = models.filter(
     (m) => !(m.id === model.id && m.provider === model.provider && m.source === model.source)
   );
   const { model: winner, reply } = await completeWithFailover([model, ...rest], messages, completeOne, tracker, {
     pinFirst: model,
+    sessionBadModels,
     onAttempt: (a) => {
       if (!a.ok) console.log(C.dim(`  [failover] ${a.provider} failed (${a.latencyMs}ms): ${a.error}`));
     },
@@ -393,7 +402,7 @@ async function main() {
     console.log(
       box(
         wrap(
-          'No models are reachable. Kilo, LLM7, Pollinations and AI Horde need no key at all, so this usually means no network. Set a gateway with /gateway once you have one.',
+          'No uncensored models are reachable. AI Horde needs no key at all, so this usually means no network, or no uncensored worker is online right now. Set a gateway with /gateway once you have one.',
           width() - 6
         ),
         { title: C.red('no models'), colour: C.red }
@@ -407,6 +416,11 @@ async function main() {
 
   const store = new SessionStore(SESSIONS_DIR);
   const tracker = new FailureTracker();
+  // Models a provider rejected as unknown (BAD_MODEL) this session.
+  // completeWithFailover adds to this set on each rejection and skips
+  // its entries without spending a call, so one stale model id costs
+  // exactly one fast failure per session instead of one per turn.
+  const sessionBadModels = new Set();
   let session = await resumeSession(store);
   // Sessions saved before the gateway-shape fix can carry poisoned entries
   // (an undefined assistant message serialized as null); drop them here so
@@ -647,21 +661,26 @@ async function main() {
 
     if (input === '/failover') {
       const summary = tracker.summary();
-      if (!summary.length) {
+      if (!summary.length && sessionBadModels.size === 0) {
         console.log(C.dim('  No provider failures recorded this run. Failover is on.\n'));
       } else {
-        console.log(
-          '\n' +
-            box(
-              summary.map((s) =>
-                `${s.coolingDown ? C.red('●') : C.amber('○')} ${s.provider} ${C.dim(
-                  `${s.failures} failures${s.coolingDown ? ` · cooling down (${Math.ceil(s.coolsDownInMs / 1000)}s left)` : ''}`
-                )}`
-              ),
-              { title: 'failover status' }
-            ) +
-            '\n'
-        );
+        if (sessionBadModels.size) {
+          console.log(C.dim(`  Blacklisted this session (provider said unknown model): ${[...sessionBadModels].join(', ')}\n`));
+        }
+        if (summary.length) {
+          console.log(
+            '\n' +
+              box(
+                summary.map((s) =>
+                  `${s.coolingDown ? C.red('●') : C.amber('○')} ${s.provider} ${C.dim(
+                    `${s.failures} failures${s.coolingDown ? ` · cooling down (${Math.ceil(s.coolsDownInMs / 1000)}s left)` : ''}`
+                  )}`
+                ),
+                { title: 'failover status' }
+              ) +
+              '\n'
+          );
+        }
       }
       continue;
     }
@@ -711,8 +730,8 @@ async function main() {
     // gateway — a dead host or paused deployment must not end the turn
     // while the direct chain still works). A fresh session retries the
     // gateway.
-    const gatewayTurn = () => runFailoverTurn(model, models, messages, tracker, (m) => completeViaGateway(cfg.gateway, m, messages, cfg.gatewayToken));
-    const directTurn = () => runFailoverTurn(model, models, messages, tracker, (m) => complete(m, messages));
+    const gatewayTurn = () => runFailoverTurn(model, models, messages, tracker, (m) => completeViaGateway(cfg.gateway, m, messages, cfg.gatewayToken), sessionBadModels);
+    const directTurn = () => runFailoverTurn(model, models, messages, tracker, (m) => complete(m, messages), sessionBadModels);
     const completeFn = !cfg.gateway || gatewayDead
       ? directTurn
       : async () => {
