@@ -97,12 +97,17 @@ describe('hf completion wire shape (error-inbox adapter parity)', () => {
   });
 
   it('POSTs { inputs, parameters } to /models/{id}, no auth header keyless', async () => {
-    responder = async () => jsonRes([{ generated_text: 'user: hi\nassistant: hello there' }]);
+    // The endpoint echoes the prompt back in front of the completion.
+    responder = async (_url, options) => jsonRes([{ generated_text: JSON.parse(options.body).inputs + 'hello there' }]);
     const model = directModels({ HF_TOKEN: 'x' }).find((m) => m.provider === 'hf');
     const reply = await complete(model, [{ role: 'user', content: 'hi' }], {});
     assert.equal(seen.url, 'https://api-inference.huggingface.co/models/someone/Swapped-Model-GGUF');
     const body = JSON.parse(seen.options.body);
-    assert.equal(body.inputs, 'user: hi');
+    // Full transcript plus the text tool protocol, ending on the
+    // assistant cue, so a text-only model can still drive tools.
+    assert.match(body.inputs, /### User:\nhi\n/);
+    assert.match(body.inputs, /<tool_call>/);
+    assert.ok(body.inputs.endsWith('### Assistant:\n'));
     assert.equal(body.parameters.max_new_tokens, 1024);
     assert.equal(seen.options.headers.Authorization, undefined);
     // The prompt echo and role marker are stripped from generated_text.
@@ -111,7 +116,7 @@ describe('hf completion wire shape (error-inbox adapter parity)', () => {
   });
 
   it('sends the bearer <redacted> when HF_TOKEN is set, like error-inbox', async () => {
-    responder = async () => jsonRes({ generated_text: 'user: hi\nthe answer' });
+    responder = async (_url, options) => jsonRes({ generated_text: JSON.parse(options.body).inputs + 'the answer' });
     const model = directModels({ HF_TOKEN: 'x' }).find((m) => m.provider === 'hf');
     const reply = await complete(model, [{ role: 'user', content: 'hi' }], { HF_TOKEN: 'hf-token' });
     assert.equal(seen.options.headers.Authorization, 'Bearer hf-token');

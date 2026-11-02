@@ -31,9 +31,9 @@ test('composio tools for Anthropic use input_schema, not parameters', () => {
   assert.deepEqual(COMPOSIO_TOOL_NAMES, GATEWAY_TOOL_NAMES);
 });
 
-test('local phone tools: the filesystem six plus the browser, no Composio', () => {
+test('local phone tools: filesystem, editing and the browser, no Composio', () => {
   const names = toolsForOpenAI().map((t) => t.function.name).sort();
-  assert.deepEqual(names, ['bash', 'browser', 'edit_file', 'grep', 'list_dir', 'read_file', 'write_file']);
+  assert.deepEqual(names, ['apply_patch', 'bash', 'browser', 'edit_file', 'grep', 'list_dir', 'multi_edit', 'read_file', 'write_file']);
 });
 
 test('gateway offers Composio tools to tool-capable models, none to text-only ones', () => {

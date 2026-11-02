@@ -13,7 +13,9 @@ import path from 'node:path';
 import os from 'node:os';
 import process from 'node:process';
 
-import { runTool } from '../lib/tools.mjs';
+import { runTool, run as runCommand } from '../lib/tools.mjs';
+import { compactInPlace, needsCompaction, contextChars, SUMMARY_SYSTEM } from '../lib/context.mjs';
+import { detectVerifyCommand, wroteFiles, pathsFromCall, exitCodeOf, failureMessage } from '../lib/verify.mjs';
 import { isGatewayTool, executeGatewayTool } from '../lib/gateway-tools.mjs';
 import { complete, appendToolResult, SYSTEM_PROMPT, sendToErrorInbox } from '../lib/agent.mjs';
 import { isGreeting, greetingReply, shouldRefuseToolCall } from '../lib/chatty.mjs';
@@ -27,11 +29,14 @@ const CONFIG_DIR = path.join(os.homedir(), '.termux-code');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 const SESSIONS_DIR = path.join(CONFIG_DIR, 'sessions');
 const HISTORY_FILE = path.join(CONFIG_DIR, 'history');
-const MAX_STEPS = 24;
+const MAX_STEPS = 40;
+const MAX_VERIFY_ATTEMPTS = 3;
+const VERIFY_TIMEOUT_MS = 180_000;
 const HISTORY_KEEP = 200;
 
-/** Providers whose function-calling shape we don't send tools to. */
-const NO_TOOLS = new Set(['gemini', 'cohere', 'horde']);
+/** Providers with no native function calling. They still drive tools
+ *  through the text protocol (lib/text-tools.mjs), just less reliably. */
+const NO_TOOLS = new Set(['gemini', 'cohere', 'horde', 'hf']);
 
 /* ---------- config ---------- */
 
@@ -178,7 +183,7 @@ async function approve(rl, desc, detail) {
 function row(m, source) {
   const badges = [];
   if (m.free) badges.push('free');
-  if (NO_TOOLS.has(m.provider)) badges.push('chat only');
+  if (NO_TOOLS.has(m.provider)) badges.push('text tools');
   if (m.disabled) badges.push('disabled');
   return {
     label: m.label,
@@ -273,8 +278,32 @@ async function runFailoverTurn(model, models, messages, tracker, completeOne, se
   return reply;
 }
 
-async function turn(model, messages, rl, root, completeFn, gateway = {}) {
+/**
+ * One user turn: call the model, run the tools it asks for, repeat until
+ * it answers without tools. Then, if it changed files and the project has
+ * a check command, run the check; a failure goes back to the model as the
+ * next message and the loop continues, up to MAX_VERIFY_ATTEMPTS.
+ *
+ * agent = {
+ *   verify: { command, approved, enabled } — session state, mutated here
+ *   summarize: (prompt) => Promise<string> — for context compaction
+ * }
+ */
+async function turn(model, messages, rl, root, completeFn, gateway = {}, agent = {}) {
+  const changed = new Set();
+  let verifyAttempts = 0;
   for (let step = 0; step < MAX_STEPS; step++) {
+    // Compact BEFORE the call, so a long session shrinks instead of
+    // overflowing a small model's context window.
+    if (needsCompaction(messages)) {
+      const spinC = spinner('Compacting context');
+      const res = await compactInPlace(messages, { summarize: agent.summarize }).catch(() => null);
+      spinC.stop();
+      if (res) {
+        console.log(C.dim(`  [context] compacted ${res.dropped} older messages (${Math.round(res.before / 1000)}k → ${Math.round(res.after / 1000)}k chars${res.usedModel ? ', model summary' : ', digest only'})`));
+      }
+    }
+
     const spin = spinner(step === 0 ? 'Thinking' : 'Working');
     let reply;
     try {
@@ -303,7 +332,46 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}) {
     }
     messages.push(reply.assistantMessage);
 
-    if (!reply.toolCalls.length) return;
+    // Text-protocol blocks the parser could not read: tell the model so it
+    // retries with valid JSON instead of the turn silently ending.
+    if (!reply.toolCalls.length && reply.textProtocolErrors?.length) {
+      console.log(C.dim(`  [tools] ${reply.textProtocolErrors.length} tool call(s) had invalid JSON, asking the model to resend`));
+      messages.push({
+        role: 'user',
+        content: `<tool_result name="error">\nYour <tool_call> block could not be parsed as JSON:\n${reply.textProtocolErrors[0]}\nResend it as {"name": "...", "args": {...}} with valid JSON.\n</tool_result>`,
+      });
+      continue;
+    }
+
+    if (!reply.toolCalls.length) {
+      // The model thinks it's done. Check its work if it changed anything.
+      const v = agent.verify;
+      if (!changed.size || !v?.enabled || !v.command) return;
+      if (verifyAttempts >= MAX_VERIFY_ATTEMPTS) {
+        console.log(C.red(`\n  [verify] still failing after ${MAX_VERIFY_ATTEMPTS} fix attempts. Stopping here so you can take a look.`));
+        return;
+      }
+      if (!v.approved) {
+        v.approved = await approve(rl, `Verify changes: run \`${v.command}\` (asked once per session)`, v.command);
+        if (!v.approved) {
+          v.enabled = false;
+          console.log(C.dim('  [verify] off for this session. /verify on to re-enable.'));
+          return;
+        }
+      }
+      verifyAttempts++;
+      console.log('\n' + toolHeader('verify', v.command));
+      const spinV = spinner('Checking');
+      const output = await runCommand(v.command, root, VERIFY_TIMEOUT_MS);
+      spinV.stop();
+      if (exitCodeOf(output) === 0) {
+        console.log(toolResult(`passed (${v.command})`, { ok: true }));
+        return;
+      }
+      console.log(toolResult(output.split('\n').slice(-12).join('\n'), { ok: false }));
+      messages.push({ role: 'user', content: failureMessage(v.command, output, verifyAttempts, MAX_VERIFY_ATTEMPTS, changed) });
+      continue;
+    }
 
     for (const call of reply.toolCalls) {
       const arg = call.args.path || call.args.command || call.args.pattern || call.args.tool_slug || call.args.query || call.args.url || call.args.selector || '';
@@ -313,7 +381,7 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}) {
       // fetch, no matter what the model decided to call.
       const latestUser = [...messages]
         .reverse()
-        .find((m) => m.role === 'user' && typeof m.content === 'string')?.content || '';
+        .find((m) => m.role === 'user' && typeof m.content === 'string' && !m.content.startsWith('<tool_result'))?.content || '';
       if (shouldRefuseToolCall(call, latestUser)) {
         const refusal =
           'Refused: that command fetches your public IP or location from an outside service, and you did not ask for it. Answer in plain text instead, and ask what the user wants to work on.';
@@ -324,12 +392,16 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}) {
       let result;
       let ok = true;
       try {
-        // Composio tools run server-side through the gateway, where the
-        // Composio key lives — never on the phone, which holds no key.
-        // Everything else runs locally exactly as before. A remote app
-        // action gets the same yes/no approval as a local write or shell
-        // command, because its side effects live outside the phone.
-        if (isGatewayTool(call.name)) {
+        if (call.args && typeof call.args._error === 'string') {
+          // The gateway refused oversized arguments; say why, don't run.
+          result = call.args._error;
+          ok = false;
+        } else if (isGatewayTool(call.name)) {
+          // Composio tools run server-side through the gateway, where the
+          // Composio key lives — never on the phone, which holds no key.
+          // A remote app action gets the same yes/no approval as a local
+          // write or shell command, because its side effects live outside
+          // the phone.
           const preview = JSON.stringify(call.args ?? {}, null, 1).slice(0, 800);
           const allowed = await approve(rl, `Composio → ${call.name}`, preview);
           if (!allowed) {
@@ -356,7 +428,8 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}) {
         result = `Error: ${err.message}`;
         ok = false;
       }
-      console.log(toolResult(result, { ok }));
+      if (wroteFiles(call.name, result)) for (const p of pathsFromCall(call)) changed.add(p);
+      console.log(toolResult(result, { ok: ok && !/Syntax check failed|JSON syntax error|WARNING:/.test(String(result)) }));
       appendToolResult(messages, model, call, result);
     }
   }
@@ -379,6 +452,9 @@ const HELP = [
   ['/rename <t>', 'rename the current session'],
   ['/export [file]', 'export the session as Markdown'],
   ['/failover', 'show provider failover status'],
+  ['/verify [on|off|<cmd>]', 'auto-check changes with the project\u2019s tests'],
+  ['/compact', 'summarize older context now'],
+  ['/context', 'show how much context the session uses'],
   ['/clear', 'forget this conversation'],
   ['/cwd', 'show the workspace root'],
   ['/exit', 'quit'],
@@ -449,6 +525,52 @@ async function main() {
     }
   };
 
+  /**
+   * One assistant step over an arbitrary message list, through the
+   * gateway when one is configured, else direct. Both modes walk the
+   * failover chain: the chosen model first, then the rest of the
+   * catalogue when it fails OR refuses (see lib/refusal.mjs). If the
+   * gateway path fails — a terminal token rejection, or every provider
+   * failing THROUGH the gateway — fall back to the keyless direct chain
+   * for the rest of the session. Sign-in is never required to keep
+   * chatting; a fresh session retries the gateway.
+   */
+  const completeFor = async (msgs) => {
+    const gatewayTurn = () => runFailoverTurn(model, models, msgs, tracker, (m) => completeViaGateway(cfg.gateway, m, msgs, cfg.gatewayToken), sessionBadModels);
+    const directTurn = () => runFailoverTurn(model, models, msgs, tracker, (m) => complete(m, msgs), sessionBadModels);
+    if (!cfg.gateway || gatewayDead) return directTurn();
+    try {
+      return await gatewayTurn();
+    } catch (err) {
+      const reason = gatewayFallbackReason(err);
+      if (reason) {
+        gatewayDead = true;
+        console.log(C.dim(reason === 'terminal'
+          ? '  [gateway] token rejected, falling back to keyless direct models. /gateway-token <t> to re-enable the gateway.\n'
+          : '  [gateway] all providers failed through the gateway, falling back to keyless direct models.\n'));
+        return directTurn();
+      }
+      throw err;
+    }
+  };
+
+  /** Model-written summary for context compaction (lib/context.mjs). */
+  const summarize = async (prompt) => {
+    const reply = await completeFor([
+      { role: 'system', content: SUMMARY_SYSTEM },
+      { role: 'user', content: prompt },
+    ]);
+    return reply.toolCalls?.length ? '' : reply.text;
+  };
+
+  /** Verify-step state for this session (lib/verify.mjs). cfg.verify is
+   *  'auto' (default: detect from the project), 'off', or a command. */
+  const verifyState = {
+    command: cfg.verify && cfg.verify !== 'auto' && cfg.verify !== 'off' ? cfg.verify : await detectVerifyCommand(root),
+    enabled: cfg.verify !== 'off',
+    approved: false,
+  };
+
   console.log(
     banner({
       cwd: path.basename(root),
@@ -491,7 +613,7 @@ async function main() {
         await saveConfig({ ...cfg, modelId: model.id, modelSource: model.source });
       }
       const note = NO_TOOLS.has(model.provider)
-        ? C.dim(' — chat only, it cannot touch your files')
+        ? C.dim(' — no native tool calling; uses the text tool protocol')
         : '';
       console.log(`${C.amber('⏺')} ${model.label}${note}\n`);
       continue;
@@ -689,6 +811,51 @@ async function main() {
       continue;
     }
 
+    if (input === '/context') {
+      const chars = contextChars(messages);
+      console.log(C.dim(`  ${messages.length} messages · ~${Math.round(chars / 1000)}k chars · compacts automatically past 60k or 80 messages`) + '\n');
+      continue;
+    }
+
+    if (input === '/compact') {
+      const spinC = spinner('Compacting context');
+      const res = await compactInPlace(messages, { summarize, force: true }).catch(() => null);
+      spinC.stop();
+      console.log(C.dim(res
+        ? `  [context] compacted ${res.dropped} older messages (${Math.round(res.before / 1000)}k → ${Math.round(res.after / 1000)}k chars)`
+        : '  [context] nothing old enough to compact yet') + '\n');
+      if (res) await persist();
+      continue;
+    }
+
+    if (input === '/verify' || input.startsWith('/verify ')) {
+      const arg = input.slice('/verify'.length).trim();
+      if (!arg) {
+        console.log(C.dim(verifyState.command
+          ? `  verify ${verifyState.enabled ? 'on' : 'off'}: ${verifyState.command}`
+          : '  verify: no test or build command found in this project. /verify <cmd> to set one.') + '\n');
+        continue;
+      }
+      if (arg === 'off') {
+        verifyState.enabled = false;
+        await saveConfig({ ...cfg, verify: 'off' });
+        cfg.verify = 'off';
+      } else if (arg === 'on' || arg === 'auto') {
+        verifyState.enabled = true;
+        verifyState.command = verifyState.command || (await detectVerifyCommand(root));
+        await saveConfig({ ...cfg, verify: 'auto' });
+        cfg.verify = 'auto';
+      } else {
+        verifyState.enabled = true;
+        verifyState.command = arg;
+        verifyState.approved = false;
+        await saveConfig({ ...cfg, verify: arg });
+        cfg.verify = arg;
+      }
+      console.log(C.dim(`  verify ${verifyState.enabled ? 'on' : 'off'}${verifyState.command ? `: ${verifyState.command}` : ' (no command found)'}`) + '\n');
+      continue;
+    }
+
     if (input === '/cwd') {
       console.log(C.dim('  ' + root) + '\n');
       continue;
@@ -734,26 +901,11 @@ async function main() {
     // gateway — a dead host or paused deployment must not end the turn
     // while the direct chain still works). A fresh session retries the
     // gateway.
-    const gatewayTurn = () => runFailoverTurn(model, models, messages, tracker, (m) => completeViaGateway(cfg.gateway, m, messages, cfg.gatewayToken), sessionBadModels);
-    const directTurn = () => runFailoverTurn(model, models, messages, tracker, (m) => complete(m, messages), sessionBadModels);
-    const completeFn = !cfg.gateway || gatewayDead
-      ? directTurn
-      : async () => {
-          try {
-            return await gatewayTurn();
-          } catch (err) {
-            const reason = gatewayFallbackReason(err);
-            if (reason) {
-              gatewayDead = true;
-              console.log(C.dim(reason === 'terminal'
-                ? '  [gateway] token rejected, falling back to keyless direct models. /gateway-token <t> to re-enable the gateway.\n'
-                : '  [gateway] all providers failed through the gateway, falling back to keyless direct models.\n'));
-              return await directTurn();
-            }
-            throw err;
-          }
-        };
-    await turn(model, messages, rl, root, completeFn, { gateway: cfg.gateway, gatewayToken: cfg.gatewayToken });
+    const completeFn = () => completeFor(messages);
+    await turn(model, messages, rl, root, completeFn, { gateway: cfg.gateway, gatewayToken: cfg.gatewayToken }, {
+      verify: verifyState,
+      summarize,
+    });
     await persist();
     console.log('');
   }

@@ -91,6 +91,14 @@ export function gatewayExtraTools(model) {
   return [];
 }
 
+function safeArgs(args) {
+  // Slicing serialized JSON and re-parsing used to throw on any args
+  // over 16k (a write_file with a real file in it) and 502 the turn.
+  const json = JSON.stringify(args ?? {});
+  if (json.length <= 65_536) return JSON.parse(json);
+  return { _error: `Tool arguments were ${json.length} characters, over the 65536 limit. Split the change into smaller edits.` };
+}
+
 export function clampReply(reply) {
   const text = typeof reply.text === 'string' && reply.text.length > MAX_REPLY_CHARS
     ? reply.text.slice(0, MAX_REPLY_CHARS) + '\n\n… [output truncated at ' + MAX_REPLY_CHARS + ' chars]'
@@ -98,7 +106,8 @@ export function clampReply(reply) {
   const toolCalls = (reply.toolCalls || []).slice(0, MAX_TOOL_CALLS).map((c) => ({
     id: String(c.id ?? '').slice(0, 200),
     name: String(c.name ?? '').slice(0, 100),
-    args: JSON.parse(JSON.stringify(c.args ?? {}).slice(0, 16_384)),
+    args: safeArgs(c.args),
+    ...(c.textProtocol ? { textProtocol: true } : {}),
   }));
   // The phone pushes assistantMessage straight into history, so it must
   // carry the linkage the next turn's tool results refer to. A text-only
@@ -108,7 +117,14 @@ export function clampReply(reply) {
   // turns rebuild tool_calls from the tool calls themselves.
   let assistantMessage;
   const native = reply.assistantMessage;
-  if (native && Array.isArray(native.content)) {
+  if (reply.textProtocol) {
+    // Text-protocol turn (lib/text-tools.mjs): the calls live in the raw
+    // text, and the phone answers them with a <tool_result> user message.
+    // Rebuilding tool_calls here would orphan-reference ids no provider
+    // ever issued, so keep the raw text and nothing else.
+    const raw = typeof native?.content === 'string' ? native.content : text;
+    assistantMessage = { role: 'assistant', content: raw.slice(0, MAX_REPLY_CHARS) };
+  } else if (native && Array.isArray(native.content)) {
     assistantMessage = { role: 'assistant', content: native.content };
   } else {
     assistantMessage = { role: 'assistant', content: text };
@@ -120,7 +136,16 @@ export function clampReply(reply) {
       }));
     }
   }
-  return { ok: true, text, toolCalls, truncated: text !== reply.text, refused: reply.refused === true, assistantMessage };
+  return {
+    ok: true,
+    text,
+    toolCalls,
+    truncated: text !== reply.text,
+    refused: reply.refused === true,
+    ...(reply.textProtocol ? { textProtocol: true } : {}),
+    ...(reply.textProtocolErrors ? { textProtocolErrors: reply.textProtocolErrors.slice(0, 5) } : {}),
+    assistantMessage,
+  };
 }
 
 export async function POST(req) {

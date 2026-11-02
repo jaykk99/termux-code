@@ -211,6 +211,9 @@ on every model.
 | `/rename <title>` | Rename the current session |
 | `/export [file]` | Export the session as Markdown |
 | `/failover` | Show provider failover status |
+| `/verify [on\|off\|<cmd>]` | Auto-check changes with the project's tests (default: on, detected) |
+| `/compact` | Summarize older context now |
+| `/context` | Show how much context the session uses |
 | `/clear` | Forget the conversation, keep the session |
 | `/cwd` | Show the workspace root |
 | `/exit` | Quit |
@@ -233,8 +236,11 @@ provider down for ten minutes, then it becomes eligible again automatically.
 Conversations persist as JSONL under `~/.termux-code/sessions/`, so quitting
 and restarting resumes where you left off. `/sessions` lists them,
 `/session <n>` switches, `/rename` titles, `/export` writes a Markdown
-transcript. Long sessions compact automatically past 400 messages (oldest
-tool exchanges fold into a summary line). Command history also persists
+transcript. The live context compacts automatically past ~60k characters or
+80 messages: older turns are replaced by one summary — a deterministic digest
+(every request, files read and changed, commands and their exit codes) plus a
+model-written summary when the model answers in time — and the recent turns
+stay verbatim. `/compact` does it on demand, `/context` shows the size. Command history also persists
 across restarts (`~/.termux-code/history`, last 200 commands).
 
 ## Tests
@@ -245,8 +251,14 @@ circuit breaker, and session persistence.
 
 ## Tools the local agent has
 
-`list_dir`, `read_file`, `grep` run without asking. `write_file`, `edit_file`
-and `bash` show you the change and wait for `y`.
+`list_dir`, `read_file`, `grep` run without asking. `write_file`, `edit_file`,
+`multi_edit`, `apply_patch` and `bash` show you the change and wait for `y`.
+
+- `multi_edit` — several exact-string edits to one file, all-or-nothing, one approval.
+- `apply_patch` — a unified diff across files (create, modify, delete). Hunks
+  are located by their context lines, so wrong line numbers still apply.
+- After every write the file is re-read: the tool result shows the lines now
+  on disk, plus a syntax check for `.js/.mjs/.cjs`, `.json`, `.py` and `.sh`.
 
 `browser` drives the phone's own Chromium (`pkg install chromium`): `open`,
 `read`, `screenshot` and `scroll` run without asking, `click` and `type`
@@ -259,12 +271,31 @@ while the rest report the install line.
 Every path is resolved against the directory you launched from and rejected
 if it escapes it. The agent cannot touch `~/.ssh` from inside `~/projects/app`.
 
+### Models without native tool calling
+
+Gemini, Cohere, Horde and HF, plus any OpenAI-shaped endpoint that rejects
+the `tools` field, drive the same tools through a text protocol
+(`lib/text-tools.mjs`): the model writes
+`<tool_call>{"name": "...", "args": {...}}</tool_call>` and gets
+`<tool_result>` blocks back. These models also now see the whole
+conversation, tool results included, not just the last message.
+
+### Plan and verify
+
+For multi-step work the agent opens with a short plan. When it finishes
+changing files, the CLI runs the project's own check (`npm test`, else an
+npm typecheck/check/lint/build script, `make test`, pytest, `cargo test`,
+`go test`) — asking once per session first. A failure goes back to the model
+with the tail of the log; it gets three attempts before the CLI stops and
+hands it to you. `/verify off` turns it off, `/verify <cmd>` sets the command.
+
 ## Known limits
 
-- Shell commands time out at 60 seconds; long builds need a separate pane.
-- The loop stops after 24 tool steps. Say "continue" to resume.
+- Shell commands time out at 60 seconds (the verify step gets 180).
+- The loop stops after 40 tool steps. Say "continue" to resume.
 - Files over 120 KB won't be read whole — ask the agent to grep instead.
-- Gemini and Cohere are chat-only (see above).
+- Text-protocol tool calling is less reliable than native calling, especially
+  on small models.
 - AI Horde is a volunteer queue — expect it to be slow, and don't rely on it
   for anything time-sensitive.
 - Vercel functions cap at 60 seconds for `/api/chat`; slow models can time
