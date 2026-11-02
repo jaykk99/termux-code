@@ -248,6 +248,14 @@ circuit breaker, and session persistence.
 `list_dir`, `read_file`, `grep` run without asking. `write_file`, `edit_file`
 and `bash` show you the change and wait for `y`.
 
+`browser` drives the phone's own Chromium (`pkg install chromium`): `open`,
+`read`, `screenshot` and `scroll` run without asking, `click` and `type`
+wait for `y` like a write. It talks to Chromium over the DevTools protocol
+and keeps one live session per CLI run; when CDP is unavailable it falls
+back to one-shot headless reads/screenshots, and when Chromium is not
+installed at all, `open`/`read` fall back to a gateway fetch (`/api/browser/read`)
+while the rest report the install line.
+
 Every path is resolved against the directory you launched from and rejected
 if it escapes it. The agent cannot touch `~/.ssh` from inside `~/projects/app`.
 
