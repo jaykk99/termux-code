@@ -306,7 +306,7 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}) {
     if (!reply.toolCalls.length) return;
 
     for (const call of reply.toolCalls) {
-      const arg = call.args.path || call.args.command || call.args.pattern || call.args.tool_slug || call.args.query || '';
+      const arg = call.args.path || call.args.command || call.args.pattern || call.args.tool_slug || call.args.query || call.args.url || call.args.selector || '';
       console.log('\n' + toolHeader(call.name, arg));
       // Refuse an identity lookup nobody asked for before it ever reaches
       // approval or execution: a greeting must never turn into an IP
@@ -346,6 +346,10 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}) {
           result = await runTool(call.name, call.args, {
             root,
             approve: (d, detail) => approve(rl, d, detail),
+            // Only the browser tool reads these: its no-Chromium read
+            // fallback goes through the gateway, like Composio does.
+            gateway: gateway.gateway,
+            gatewayToken: gateway.gatewayToken,
           });
         }
       } catch (err) {
