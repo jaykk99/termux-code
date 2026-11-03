@@ -79,16 +79,18 @@ export function sanitizeMessages(messages) {
  * Extra tools the gateway offers the phone's model, on top of the phone's
  * local filesystem tools (which lib/agent.mjs always includes). Only the
  * Composio pair: they execute server-side via /api/tools/execute, where
- * COMPOSIO_API_KEY lives, so the key never reaches the phone. OpenAI-shaped
- * models get the OpenAI shape, Anthropic models the Anthropic shape;
- * text-only models (Gemini, Cohere, Horde, HF) get nothing, because
- * lib/agent.mjs never sends them tools at all. The phone dispatches these
- * two names back to the gateway instead of running them locally.
+ * COMPOSIO_API_KEY lives, so the key never reaches the phone. Anthropic
+ * models get the Anthropic shape; everything else gets the OpenAI shape —
+ * native OpenAI-shaped models call them as functions, and text-only
+ * models (Gemini, Cohere, Horde, HF) get them described in the text tool
+ * protocol (lib/text-tools.mjs) and call them as <tool_call> blocks. The
+ * phone dispatches these two names back to the gateway by name either
+ * way, so a text-protocol call reaches Composio exactly like a native one.
  */
 export function gatewayExtraTools(model) {
-  if (model?.auth === 'anthropic') return composioToolsForAnthropic();
-  if (model?.auth === 'bearer' || model?.auth === 'none') return composioToolsForOpenAI();
-  return [];
+  if (!model || typeof model !== 'object') return [];
+  if (model.auth === 'anthropic') return composioToolsForAnthropic();
+  return composioToolsForOpenAI();
 }
 
 function safeArgs(args) {

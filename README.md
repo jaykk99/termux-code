@@ -279,6 +279,9 @@ the `tools` field, drive the same tools through a text protocol
 `<tool_call>{"name": "...", "args": {...}}</tool_call>` and gets
 `<tool_result>` blocks back. These models also now see the whole
 conversation, tool results included, not just the last message.
+Through a gateway they get your connected apps too: `composio_search` and
+`composio_execute` are described in the same protocol and run server-side,
+with the same approval prompt as a native call.
 
 ### Plan and verify
 

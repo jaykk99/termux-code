@@ -4,7 +4,8 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { parseTextToolCalls, toTextTranscript, textProtocolPrompt } from '../lib/text-tools.mjs';
+import { parseTextToolCalls, toTextTranscript, textProtocolPrompt, normalizeToolDefs } from '../lib/text-tools.mjs';
+import { composioToolsForOpenAI, composioToolsForAnthropic } from '../lib/server-tools.mjs';
 import { complete, applyTextProtocol, appendToolResult, rejectsTools, hordePrompt, cutAtNextTurn } from '../lib/agent.mjs';
 import { runTool, applyEdits } from '../lib/tools.mjs';
 import { parsePatch, applyPatchText } from '../lib/patch.mjs';
@@ -451,4 +452,57 @@ test('gateway reports oversized tool args instead of crashing on them', () => {
   assert.match(out.toolCalls[0].args._error, /over the 65536 limit/);
   const mid = clampReply({ text: '', toolCalls: [{ id: '1', name: 'write_file', args: { path: 'a', content: 'y'.repeat(30_000) } }], assistantMessage: { role: 'assistant', content: '' } });
   assert.equal(mid.toolCalls[0].args.content.length, 30_000);
+});
+
+/* ---------------- Composio for text-protocol models ---------------- */
+
+describe('Composio through the text protocol', () => {
+  it('normalizes OpenAI and Anthropic wire shapes to one schema', () => {
+    const a = normalizeToolDefs(composioToolsForOpenAI());
+    const b = normalizeToolDefs(composioToolsForAnthropic());
+    assert.deepEqual(a.map((t) => t.name), b.map((t) => t.name));
+    assert.ok(a.every((t) => t.parameters && t.parameters.type === 'object'));
+    assert.deepEqual(normalizeToolDefs([null, {}, { type: 'function' }]), []);
+  });
+
+  it('the protocol prompt lists the Composio tools and the search-then-execute rule only when offered', () => {
+    const withC = textProtocolPrompt(undefined, composioToolsForOpenAI());
+    assert.match(withC, /- composio_search\(/);
+    assert.match(withC, /- composio_execute\(/);
+    assert.match(withC, /Never\nguess a slug/);
+    assert.doesNotMatch(textProtocolPrompt(), /composio/);
+  });
+
+  it('a text-only model is told about Composio and its call comes back as a text-protocol call', async () => {
+    const realFetch = globalThis.fetch;
+    let sent;
+    globalThis.fetch = async (_url, options) => {
+      sent = JSON.parse(options.body);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ candidates: [{ content: { parts: [{ text: '<tool_call>{"name":"composio_search","args":{"query":"send an email"}}</tool_call>' }] } }] }),
+        text: async () => '',
+      };
+    };
+    try {
+      const model = { auth: 'gemini', id: 'g', provider: 'gemini', url: 'https://example.invalid/models' };
+      const reply = await complete(model, [{ role: 'system', content: 'S' }, { role: 'user', content: 'email bob' }], {}, composioToolsForOpenAI());
+      assert.match(sent.systemInstruction.parts[0].text, /composio_search/);
+      assert.equal(reply.toolCalls[0].name, 'composio_search');
+      assert.equal(reply.toolCalls[0].textProtocol, true);
+      assert.deepEqual(reply.toolCalls[0].args, { query: 'send an email' });
+      // The hosted chatbot passes baseTools:false — no protocol, no tools.
+      await complete(model, [{ role: 'user', content: 'x' }], {}, composioToolsForOpenAI(), { baseTools: false });
+      assert.doesNotMatch(sent.systemInstruction.parts[0].text, /composio_search|tool_call|read_file/);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it('hordePrompt includes Composio when the gateway offers it', () => {
+    assert.match(hordePrompt([{ role: 'user', content: 'hi' }], textProtocolPrompt(undefined, composioToolsForOpenAI())), /composio_execute/);
+    assert.match(hordePrompt([{ role: 'user', content: 'hi' }]), /read_file/);
+    assert.doesNotMatch(hordePrompt([{ role: 'user', content: 'hi' }], ''), /tool_call/);
+  });
 });

@@ -36,13 +36,16 @@ test('local phone tools: filesystem, editing and the browser, no Composio', () =
   assert.deepEqual(names, ['apply_patch', 'bash', 'browser', 'edit_file', 'grep', 'list_dir', 'multi_edit', 'read_file', 'write_file']);
 });
 
-test('gateway offers Composio tools to tool-capable models, none to text-only ones', () => {
+test('gateway offers Composio tools to every model, text-only ones included', () => {
   assert.equal(gatewayExtraTools({ auth: 'bearer' }).length, 2);
   assert.equal(gatewayExtraTools({ auth: 'none' }).length, 2);
   assert.equal(gatewayExtraTools({ auth: 'anthropic' }).length, 2);
   assert.ok(gatewayExtraTools({ auth: 'anthropic' }).every((t) => t.input_schema));
+  // Text-only models get the OpenAI shape; lib/agent.mjs describes it in
+  // the text tool protocol instead of sending it as `tools`.
   for (const auth of ['gemini', 'cohere', 'horde', 'hf']) {
-    assert.deepEqual(gatewayExtraTools({ auth }), [], auth);
+    const tools = gatewayExtraTools({ auth });
+    assert.deepEqual(tools.map((t) => t.function.name).sort(), ['composio_execute', 'composio_search'], auth);
   }
   assert.deepEqual(gatewayExtraTools(null), []);
 });
