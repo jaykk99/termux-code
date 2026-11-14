@@ -276,10 +276,35 @@ describe('worker startup safety (1101 guard)', () => {
     );
   });
 
-  it('the filesystem store still round-trips through the dynamic import', async () => {
+  it('stateless tokens verify without a store write', async () => {
+    // Since f9155a9 tokens are stateless: minting writes nothing, so
+    // list/revoke (stored legacy tokens only) stay empty. Verification
+    // needs no store at all.
     const token = await issueGatewayToken('jaykk99', ENV);
     assert.deepEqual(await verifyGatewayToken(token, ENV), { login: 'jaykk99' });
+    assert.equal((await listGatewayTokens('jaykk99', ENV)).length, 0);
+    assert.equal(await revokeGatewayTokens('jaykk99', ENV), 0);
+  });
+
+  it('legacy stored tokens still round-trip through the dynamic-import fs store', async () => {
+    // The fs store (lib/token-store-fs.mjs, dynamic import only) still
+    // backs list/revoke for pre-stateless tokens: seed one legacy token
+    // hash straight into the file, then verify/list/revoke it.
+    const { fsReadStore, fsWriteStore } = await import('../lib/token-store-fs.mjs');
+    const { createHash, randomBytes } = await import('node:crypto');
+    const legacy = `tc_${randomBytes(16).toString('hex')}`;
+    const doc = await fsReadStore(ENV.GATEWAY_TOKEN_STORE);
+    doc.tokens.push({
+      hash: createHash('sha256').update(legacy).digest('hex'),
+      login: 'jaykk99',
+      prefix: legacy.slice(0, 8),
+      createdAt: new Date().toISOString(),
+      lastUsedAt: null,
+    });
+    await fsWriteStore(ENV.GATEWAY_TOKEN_STORE, doc);
+    assert.deepEqual(await verifyGatewayToken(legacy, ENV), { login: 'jaykk99' });
     assert.equal((await listGatewayTokens('jaykk99', ENV)).length, 1);
     assert.equal(await revokeGatewayTokens('jaykk99', ENV), 1);
+    assert.equal((await listGatewayTokens('jaykk99', ENV)).length, 0);
   });
 });

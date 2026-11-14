@@ -50,6 +50,10 @@ describe('SessionStore', () => {
     const a = await store.create('a');
     await new Promise((r) => setTimeout(r, 5));
     const b = await store.create('b');
+    // Gap before the append: `updated` is millisecond precision, and an
+    // append in the same millisecond as b's create ties with it, leaving
+    // list() order to readdir chance. The sleep makes a strictly newest.
+    await new Promise((r) => setTimeout(r, 5));
     await store.append(a.id, [MSG('user', 'touch a')]); // a becomes newest
     const list = await store.list();
     assert.equal(list[0].id, a.id);
