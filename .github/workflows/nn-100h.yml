@@ -40,6 +40,9 @@ jobs:
         run: |
           git config user.name "nn-100h"
           git config user.email "nn-100h@users.noreply.github.com"
+          # Rebase onto any commits pushed mid-run (e.g. a grid fix),
+          # so the push below does not get rejected as non-fast-forward.
+          git pull --rebase origin ${{ github.ref_name }}
           git add nn-100h/
           HOURS=$(python3 -c "import json; print(round(json.load(open('nn-100h/status.json'))['hours_trained'], 2))")
           git diff --cached --quiet || git commit -m "nn-100h: checkpoint ${HOURS}h cumulative"
