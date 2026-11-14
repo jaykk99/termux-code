@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>termux-code NN — model-availability predictor</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --line:#30363d; --text:#e6edf3;
+          --muted:#8b949e; --green:#3fb950; --red:#f85149; --amber:#d29922;
+          --blue:#58a6ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  header { padding:20px 24px 8px; }
+  h1 { margin:0 0 4px; font-size:22px; }
+  h2 { font-size:16px; margin:0 0 10px; }
+  .sub { color:var(--muted); font-size:13px; }
+  main { padding:12px 24px 40px; display:grid; gap:16px;
+         grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); }
+  .card { background:var(--panel); border:1px solid var(--line);
+          border-radius:8px; padding:16px; }
+  .wide { grid-column:1 / -1; }
+  .warn { background:#3a2b00; border:1px solid var(--amber); color:#ffd479;
+          border-radius:8px; padding:12px 16px; font-size:13px; }
+  .warn b { color:#fff; }
+  .metrics { display:flex; flex-wrap:wrap; gap:12px; }
+  .metric { flex:1 1 120px; background:#0d1117; border:1px solid var(--line);
+            border-radius:6px; padding:10px; }
+  .metric .v { font-size:22px; font-weight:700; }
+  .metric .k { color:var(--muted); font-size:12px; margin-top:2px; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  th, td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+  th { color:var(--muted); font-weight:600; }
+  .bar-row { display:grid; grid-template-columns:170px 1fr 56px; gap:8px;
+             align-items:center; font-size:12px; margin:5px 0; }
+  .bar { height:12px; background:#0d1117; border:1px solid var(--line);
+         border-radius:3px; overflow:hidden; }
+  .bar > div { height:100%; background:var(--blue); }
+  .bar-row.neg .bar > div { background:var(--red); }
+  code { background:#0d1117; border:1px solid var(--line); border-radius:4px;
+         padding:1px 5px; font-size:12px; }
+  ul { margin:8px 0; padding-left:20px; font-size:13px; color:var(--muted); }
+  ul li { margin-bottom:4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>termux-code NN — model-availability predictor</h1>
+  <div class="sub">Predicts whether a registry model is listed by
+  <code>directModels()</code> under a given env configuration. Pure Python stdlib,
+  zero dependencies. Pre-check only: <code>directModels()</code> stays the authority,
+  this model never enables anything.</div>
+</header>
+<main>
+  <div class="card wide warn" id="limits"><b>Limits.</b> <span id="limits-text"></span></div>
+  <div class="card">
+    <h2>Test metrics (held-out)</h2>
+    <div class="metrics" id="test-metrics"></div>
+  </div>
+  <div class="card">
+    <h2>Train metrics</h2>
+    <div class="metrics" id="train-metrics"></div>
+  </div>
+  <div class="card">
+    <h2>Dataset</h2>
+    <div id="dataset"></div>
+  </div>
+  <div class="card">
+    <h2>Confusion (test)</h2>
+    <div id="confusion"></div>
+  </div>
+  <div class="card wide">
+    <h2>Feature importance (test AUC drop when shuffled)</h2>
+    <div id="importance"></div>
+  </div>
+  <div class="card wide">
+    <h2>How to use</h2>
+    <ul>
+      <li><code>node nn/build_dataset.mjs</code> — rebuild the dataset from the registry (run after editing lib/models.mjs).</li>
+      <li><code>python3 -m nn.train</code> — retrain from the dataset, refreshes this page's numbers.</li>
+      <li><code>python3 -m nn.score --scenario no-keys --all</code> — rank every registry model with no keys set.</li>
+      <li><code>python3 -m nn.score --scenario only-HF_TOKEN --model hf/DavidAU/GLM-4.7-Flash-Uncensored-Heretic-NEO-CODE-Imatrix-MAX-GGUF</code> — score one model.</li>
+    </ul>
+  </div>
+</main>
+<!-- NN-DATA-START -->
+<script type="application/json" id="nn-data">
+{
+  "trained_at": "2026-11-14T06:06:04.880928+00:00",
+  "layers": [
+    33,
+    8,
+    1
+  ],
+  "n_features": 33,
+  "feature_names": [
+    "auth:none",
+    "auth:horde",
+    "auth:bearer",
+    "auth:gemini",
+    "auth:cohere",
+    "auth:anthropic",
+    "auth:hf",
+    "auth:OTHER",
+    "key_required",
+    "key_set",
+    "free",
+    "tools",
+    "has_uncensored_marker",
+    "provider:hf",
+    "provider:kilo",
+    "provider:mistral",
+    "provider:llm7",
+    "provider:cerebras",
+    "provider:githubmodels",
+    "provider:sambanova",
+    "provider:nvidia",
+    "provider:together",
+    "provider:gemini",
+    "provider:deepinfra",
+    "provider:groq",
+    "provider:openrouter",
+    "provider:huggingface",
+    "provider:omniroute",
+    "provider:horde",
+    "provider:fireworks",
+    "provider:anthropic",
+    "provider:pollinations",
+    "provider:OTHER"
+  ],
+  "dataset": {
+    "registry_models": 46,
+    "scenarios": 18,
+    "scenario_names": [
+      "no-keys",
+      "only-ANTHROPIC_API_KEY",
+      "only-CEREBRAS_API_KEY",
+      "only-COHERE_API_KEY",
+      "only-DEEPINFRA_API_KEY",
+      "only-FIREWORKS_API_KEY",
+      "only-GEMINI_API_KEY",
+      "only-GITHUB_MODELS_TOKEN",
+      "only-GRATISFY_API_KEY",
+      "only-GROQ_API_KEY",
+      "only-HF_TOKEN",
+      "only-MISTRAL_API_KEY",
+      "only-NVIDIA_API_KEY",
+      "only-OMNIROUTE_API_KEY",
+      "only-OPENROUTER_API_KEY",
+      "only-SAMBANOVA_API_KEY",
+      "only-TOGETHER_API_KEY",
+      "all-keys"
+    ],
+    "built_at": "2026-11-14T06:03:44.060Z",
+    "train_rows": 828,
+    "n_positive": 30,
+    "n_negative": 798,
+    "distinct_listed_models": 7
+  },
+  "train_rows": 662,
+  "train_rows_balanced": 798,
+  "balance": {
+    "balanced": true,
+    "train_pos_frac_before": 0.036,
+    "train_pos_frac_after": 0.201,
+    "duplicated_rows": 136
+  },
+  "test_rows": 166,
+  "train_metrics": {
+    "n": 798,
+    "n_positive": 160,
+    "n_negative": 638,
+    "threshold": 0.5,
+    "accuracy": 1.0,
+    "majority_baseline_accuracy": 0.7994987468671679,
+    "roc_auc": 1.0,
+    "confusion": {
+      "tn": 638,
+      "fp": 0,
+      "fn": 0,
+      "tp": 160
+    },
+    "precision_listed": 1.0,
+    "recall_listed": 1.0,
+    "f1_listed": 1.0,
+    "precision_not_listed": 1.0,
+    "recall_not_listed": 1.0,
+    "f1_not_listed": 1.0
+  },
+  "test_metrics": {
+    "n": 166,
+    "n_positive": 6,
+    "n_negative": 160,
+    "threshold": 0.5,
+    "accuracy": 1.0,
+    "majority_baseline_accuracy": 0.963855421686747,
+    "roc_auc": 1.0,
+    "confusion": {
+      "tn": 160,
+      "fp": 0,
+      "fn": 0,
+      "tp": 6
+    },
+    "precision_listed": 1.0,
+    "recall_listed": 1.0,
+    "f1_listed": 1.0,
+    "precision_not_listed": 1.0,
+    "recall_not_listed": 1.0,
+    "f1_not_listed": 1.0
+  },
+  "history": {
+    "loss": [
+      0.5010524948967745,
+      0.3978421394524181,
+      0.32799780831615954,
+      0.27369512350746666,
+      0.23183667409949107,
+      0.2004753422267983,
+      0.17669552742608982,
+      0.1582831230925896,
+      0.14346359166299336,
+      0.1310678929203892,
+      0.12040897267910822,
+      0.11111930315477074,
+      0.10273503388738398,
+      0.09519143811498222,
+      0.08832387211908926,
+      0.08195548926128017,
+      0.07613583913683505,
+      0.07081873630658926,
+      0.06584847439056302,
+      0.06130321557496598,
+      0.05712349805609605,
+      0.05329423665852954,
+      0.049775574891739297,
+      0.04658151320005432,
+      0.04364585099659057,
+      0.041010459816458414,
+      0.03855372668612581,
+      0.03634575112500402,
+      0.03435486956159565,
+      0.03249073638588758,
+      0.03081262535277347,
+      0.029271138222174076,
+      0.027888541349008568,
+      0.02656545730914015,
+      0.025362685224790123,
+      0.02426227005643017,
+      0.023234898634616516,
+      0.022282675273630852,
+      0.021399826274210117,
+      0.02057610369011435,
+      0.01980509410629828,
+      0.01908408080515725,
+      0.018406208533864116,
+      0.017771917540011607,
+      0.01716996460227409,
+      0.016605727822949463,
+      0.016076470820293603,
+      0.015569044523689481,
+      0.015100904003917533,
+      0.014639781725355532,
+      0.014209748434577493,
+      0.013801445141613009,
+      0.013412913004856518,
+      0.013042829891659896,
+      0.012691601323750157,
+      0.012354836610617703,
+      0.012035311811176898,
+      0.011727977721578842,
+      0.011434999167040272,
+      0.011155029618514336
+    ],
+    "train_acc": [
+      0.7844611528822055,
+      0.7994987468671679,
+      0.9360902255639098,
+      0.9360902255639098,
+      0.9360902255639098,
+      0.9360902255639098,
+      0.9360902255639098,
+      0.9360902255639098,
+      0.9360902255639098,
+      0.9360902255639098,
+      0.9360902255639098,
+      0.9360902255639098,
+      0.9360902255639098,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "val_acc": [
+      0.927710843373494,
+      0.963855421686747,
+      0.9819277108433735,
+      0.9819277108433735,
+      0.9819277108433735,
+      0.9819277108433735,
+      0.9819277108433735,
+      0.9819277108433735,
+      0.9819277108433735,
+      0.9819277108433735,
+      0.9819277108433735,
+      0.9819277108433735,
+      0.9819277108433735,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ]
+  },
+  "feature_importance": [
+    {
+      "group": "key_set",
+      "auc_drop": 0.0276
+    },
+    {
+      "group": "auth",
+      "auc_drop": 0.0
+    },
+    {
+      "group": "free",
+      "auc_drop": 0.0
+    },
+    {
+      "group": "has_uncensored_marker",
+      "auc_drop": 0.0
+    },
+    {
+      "group": "key_required",
+      "auc_drop": 0.0
+    },
+    {
+      "group": "provider",
+      "auc_drop": 0.0
+    },
+    {
+      "group": "tools",
+      "auc_drop": 0.0
+    }
+  ],
+  "limits": [
+    "Pre-check only. The model predicts whether a registry model is listed by directModels() under an env configuration; it never enables a model and never overrides directModels(), which stays the authority.",
+    "Labels are rule-derived: each row is labeled by directModels() on the real PROVIDERS registry. A high score means the network reproduced that gating + the uncensored filter, not a discovery.",
+    "Label skew: 30 listed / 798 not-listed of 828 rows (3.6% positive). Only 7 of 46 registry models are ever listed: horde/any under every env, and the 6 hf models only when HF_TOKEN is set. The majority baseline is 0.964; judge by listed-class recall and ROC AUC, not accuracy.",
+    "Training positives are duplicated (train set only) so the network sees the minority class; the test set stays at natural prevalence and is never oversampled.",
+    "Registry models or env keys unseen in training fall into the OTHER bucket; the model has no opinion about them beyond the generic features."
+  ],
+  "seed": 42,
+  "epochs": 60,
+  "lr": 0.05
+}
+</script>
+<!-- NN-DATA-END -->
+<script>
+const d = JSON.parse(document.getElementById('nn-data').textContent || '{}');
+function metric(el, k, v) {
+  const div = document.createElement('div');
+  div.className = 'metric';
+  div.innerHTML = '<div class="v"></div><div class="k"></div>';
+  div.querySelector('.v').textContent = v;
+  div.querySelector('.k').textContent = k;
+  document.getElementById(el).appendChild(div);
+}
+if (d.test_metrics) {
+  const t = d.test_metrics, tr = d.train_metrics;
+  metric('test-metrics', 'test accuracy', t.accuracy.toFixed(3));
+  metric('test-metrics', 'majority baseline', t.majority_baseline_accuracy.toFixed(3));
+  metric('test-metrics', 'test ROC AUC', t.roc_auc.toFixed(3));
+  metric('test-metrics', 'listed precision', t.precision_listed.toFixed(3));
+  metric('test-metrics', 'listed recall', t.recall_listed.toFixed(3));
+  metric('test-metrics', 'not-listed recall', t.recall_not_listed.toFixed(3));
+  metric('train-metrics', 'train accuracy', tr.accuracy.toFixed(3));
+  metric('train-metrics', 'train ROC AUC', tr.roc_auc.toFixed(3));
+  metric('train-metrics', 'layers', d.layers.join('-'));
+  metric('train-metrics', 'features', d.n_features);
+  metric('train-metrics', 'train rows', d.train_rows);
+  metric('train-metrics', 'test rows', d.test_rows);
+  document.getElementById('dataset').innerHTML =
+    '<table><tr><th>rows</th><td>' + d.dataset.train_rows + ' (' + d.dataset.registry_models +
+    ' models x ' + d.dataset.scenarios + ' env scenarios)</td></tr>' +
+    '<tr><th>listed / not-listed</th><td>' + d.dataset.n_positive + ' / ' + d.dataset.n_negative +
+    '</td></tr><tr><th>trained</th><td>' + d.trained_at + '</td></tr></table>';
+  const c = t.confusion;
+  document.getElementById('confusion').innerHTML =
+    '<table><tr><th></th><th>predicted listed</th><th>predicted not-listed</th></tr>' +
+    '<tr><th>actually listed</th><td>' + c.tp + '</td><td>' + c.fn + '</td></tr>' +
+    '<tr><th>actually not-listed</th><td>' + c.fp + '</td><td>' + c.tn + '</td></tr></table>';
+  document.getElementById('importance').innerHTML = (d.feature_importance || []).map(f =>
+    '<div class="bar-row' + (f.auc_drop < 0 ? ' neg' : '') + '"><span>' + f.feature +
+    '</span><div class="bar"><div style="width:' +
+    Math.min(100, Math.max(0, f.auc_drop * 400)) + '%"></div></div><span>' +
+    f.auc_drop.toFixed(3) + '</span></div>').join('');
+  document.getElementById('limits-text').textContent = (d.limits || []).join(' ');
+} else {
+  document.getElementById('limits-text').textContent =
+    'Not trained yet — run python3 -m nn.train.';
+}
+</script>
+</body>
+</html>
