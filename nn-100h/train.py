@@ -124,6 +124,7 @@ def heartbeat(exp_id, epoch, experiments_done) -> None:
 
 
 def save_checkpoint(exp_id, config, epoch, net) -> None:
+    (HERE / "checkpoints").mkdir(parents=True, exist_ok=True)
     ck = {"exp_id": exp_id, "config": config, "epoch": epoch,
           "net": net.to_dict()}
     (HERE / "checkpoints" / f"{exp_id}.json").write_text(json.dumps(ck))
@@ -194,6 +195,7 @@ def main():
 
     chunk_start = time.time()
     chunk_deadline = chunk_start + args.max_run_hours * 3600
+    (HERE / "checkpoints").mkdir(parents=True, exist_ok=True)
     status = load_status()
     if status.get("status") == "done":
         log("already done (100h reached), nothing to do")
