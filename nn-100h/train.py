@@ -259,11 +259,12 @@ def main():
             if exp_id in done:
                 continue
             log(f"start {exp_id} {config} seed={seed}")
-            result, net = run_experiment(exp_id, config, seed, X_train,
-                                       y_train, X_test, y_test, X_rand,
-                                       y_rand, chunk_deadline, status)
-            if result is None:
+            res = run_experiment(exp_id, config, seed, X_train,
+                               y_train, X_test, y_test, X_rand,
+                               y_rand, chunk_deadline, status)
+            if res is None:
                 break  # chunk time up mid-experiment
+            result, net = res
             ran += 1
             done.add(exp_id)
             status["experiments_done"] = sorted(done)
