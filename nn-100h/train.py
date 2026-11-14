@@ -46,6 +46,9 @@ HERE = Path(__file__).resolve().parent
 GOAL_HOURS = 100.0
 CHECKPOINT_EVERY = 20
 
+# Small grid on purpose (Jay: keep termux-code small, little data):
+# 6,348 rows / 33 features do not justify big nets. Hidden {8, 16,
+# 16,8} only, 60 epochs; no 32-wide layers, no 120-epoch runs.
 GRID = [
     {"hidden": "8", "lr": 0.05, "l2": 1e-4, "epochs": 60},
     {"hidden": "8", "lr": 0.02, "l2": 1e-4, "epochs": 60},
@@ -53,16 +56,9 @@ GRID = [
     {"hidden": "16", "lr": 0.02, "l2": 1e-4, "epochs": 60},
     {"hidden": "16,8", "lr": 0.05, "l2": 1e-4, "epochs": 60},
     {"hidden": "16,8", "lr": 0.02, "l2": 1e-4, "epochs": 60},
-    {"hidden": "32,16", "lr": 0.05, "l2": 1e-4, "epochs": 60},
-    {"hidden": "32,16", "lr": 0.02, "l2": 1e-4, "epochs": 60},
     {"hidden": "8", "lr": 0.05, "l2": 1e-3, "epochs": 60},
     {"hidden": "16", "lr": 0.05, "l2": 1e-3, "epochs": 60},
     {"hidden": "16,8", "lr": 0.05, "l2": 1e-3, "epochs": 60},
-    {"hidden": "32,16", "lr": 0.05, "l2": 1e-3, "epochs": 60},
-    {"hidden": "8", "lr": 0.05, "l2": 1e-4, "epochs": 120},
-    {"hidden": "16,8", "lr": 0.05, "l2": 1e-4, "epochs": 120},
-    {"hidden": "16", "lr": 0.02, "l2": 1e-3, "epochs": 120},
-    {"hidden": "32,16", "lr": 0.02, "l2": 1e-3, "epochs": 120},
 ]
 
 
