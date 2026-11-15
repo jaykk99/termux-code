@@ -42,7 +42,11 @@ jobs:
           git config user.email "nn-100h@users.noreply.github.com"
           # Rebase onto any commits pushed mid-run (e.g. a grid fix),
           # so the push below does not get rejected as non-fast-forward.
-          git pull --rebase origin ${{ github.ref_name }}
+          # --autostash is required: the trainer always leaves
+          # nn-100h/status.json etc. modified (tracked files), and a
+          # plain pull --rebase refuses a dirty tree with exit 128
+          # (this stalled run 43652137164 after a full 5.5h chunk).
+          git pull --rebase --autostash origin ${{ github.ref_name }}
           git add nn-100h/
           HOURS=$(python3 -c "import json; print(round(json.load(open('nn-100h/status.json'))['hours_trained'], 2))")
           git diff --cached --quiet || git commit -m "nn-100h: checkpoint ${HOURS}h cumulative"
