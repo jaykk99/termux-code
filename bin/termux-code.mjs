@@ -446,6 +446,9 @@ const HELP = [
   ['/gateway <url>', 'point at a different deployment'],
   ['/gateway off', 'drop the gateway, use keyless direct models'],
   ['/gateway-token <t>', 'save the gateway token minted on the deployment\u2019s landing page'],
+  ['/bro <url>', 'point Bro at your gateway (tunnel URL or Render URL)'],
+  ['/bro off', 'stop using Bro, fall back to the keyless direct chain'],
+  ['/bro-code <c>', 'save the Bro access code (never printed back)'],
   ['/sessions', 'list saved conversation sessions'],
   ['/session <n>', 'resume a session by number or id'],
   ['/new', 'start a new session'],
@@ -463,6 +466,16 @@ const HELP = [
 async function main() {
   const root = process.cwd();
   const cfg = await loadConfig();
+
+  // Bro (Jay's uncensored gateway) comes from ~/.termux-code/config.json
+  // — set by the installer (TERMUX_CODE_BRO_URL / TERMUX_CODE_BRO_CODE)
+  // or by /bro and /bro-code inside the CLI — and feeds the same env
+  // vars the provider registry reads (BRO_BASE_URL, BRO_ACCESS_CODE).
+  // A real env var always wins over the config file, and the code is
+  // never printed anywhere: /bro-code with no argument only says
+  // whether one is set.
+  if (cfg.broBaseUrl && !process.env.BRO_BASE_URL) process.env.BRO_BASE_URL = cfg.broBaseUrl;
+  if (cfg.broAccessCode && !process.env.BRO_ACCESS_CODE) process.env.BRO_ACCESS_CODE = cfg.broAccessCode;
 
   const boot = spinner('Loading models');
   const models = await loadCatalogue(cfg);
@@ -686,6 +699,43 @@ async function main() {
       gatewayDead = false;
       await saveConfig(cfg);
       console.log(C.dim('  Saved. Restart to reload the model list.\n'));
+      continue;
+    }
+
+    if (input.startsWith('/bro-code')) {
+      const code = input.slice(9).trim();
+      if (!code) {
+        console.log(
+          C.dim('  ' + (cfg.broAccessCode || process.env.BRO_ACCESS_CODE ? 'A Bro access code is set.' : 'No Bro access code set. The gateway does not require one today.')) + '\n'
+        );
+        continue;
+      }
+      cfg.broAccessCode = code;
+      process.env.BRO_ACCESS_CODE = code;
+      await saveConfig(cfg);
+      console.log(C.dim('  Saved. Restart to use it.\\n'));
+      continue;
+    }
+
+    if (input.startsWith('/bro')) {
+      const url = input.slice(4).trim();
+      if (!url) {
+        console.log(C.dim('  ' + (cfg.broBaseUrl || process.env.BRO_BASE_URL || 'No Bro gateway set.')) + '\n');
+        continue;
+      }
+      if (url === 'off') {
+        delete cfg.broBaseUrl;
+        delete cfg.broAccessCode;
+        delete process.env.BRO_BASE_URL;
+        delete process.env.BRO_ACCESS_CODE;
+        await saveConfig(cfg);
+        console.log(C.dim('  Bro cleared. Horde and the keyless direct chain are the fallback. Restart to reload the model list.\\n'));
+        continue;
+      }
+      cfg.broBaseUrl = url;
+      process.env.BRO_BASE_URL = url;
+      await saveConfig(cfg);
+      console.log(C.dim('  Saved. Bro is tried first from the next restart.\\n'));
       continue;
     }
 
