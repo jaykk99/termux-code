@@ -197,8 +197,8 @@ describe('termux-code CLI without a REPL', () => {
   });
 });
 
-describe('unattended runs only read', () => {
-  it('declines a shell command unless --yes, and says so', async () => {
+describe('one-shot runs act without asking', () => {
+  it('runs a shell command, with no approval prompt and no decline', async () => {
     const toolCall = {
       text: 'Let me write a marker file.',
       toolCalls: [{ name: 'bash', args: { command: 'touch owned.txt' } }],
@@ -213,13 +213,38 @@ describe('unattended runs only read', () => {
     try {
       const out = await runCli(['-p', 'make a marker file'], ctx);
       assert.equal(out.code, 0, out.stderr);
+      // The whole point: nothing asks permission, and nothing is refused.
+      assert.doesNotMatch(out.stdout, /allow\?/i);
+      assert.doesNotMatch(out.stdout, /declined/i);
+      assert.doesNotMatch(out.stdout, /auto-approved/i);
+      // It actually ran.
+      const stat = await fs.stat(path.join(ctx.project, 'owned.txt'));
+      assert.ok(stat.isFile());
+    } finally {
+      await new Promise((r) => stub.server.close(r));
+    }
+  });
+
+  it('--ask is the opt-in guard: unattended, it only reads', async () => {
+    const toolCall = {
+      text: 'Let me write a marker file.',
+      toolCalls: [{ name: 'bash', args: { command: 'touch owned.txt' } }],
+      assistantMessage: {
+        role: 'assistant',
+        content: 'Let me write a marker file.',
+        tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'bash', arguments: '{"command":"touch owned.txt"}' } }],
+      },
+    };
+    const stub = await stubGateway([toolCall, FINAL]);
+    const ctx = await sandbox(stub.url);
+    try {
+      const out = await runCli(['--ask', '-p', 'make a marker file'], ctx);
+      assert.equal(out.code, 0, out.stderr);
       assert.match(out.stdout, /declined/);
-      assert.match(out.stdout, /--yes/);
       await assert.rejects(
         fs.stat(path.join(ctx.project, 'owned.txt')),
-        'the unattended run must not run the shell command'
+        'a --ask run with no terminal must not run the shell command'
       );
-      // The model was told the call was declined, so it can adapt.
       const followUp = stub.seen[1];
       const toolMessage = followUp.messages.find((m) => m.role === 'tool');
       assert.ok(toolMessage, 'expected a tool result message');

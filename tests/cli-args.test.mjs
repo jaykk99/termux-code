@@ -19,7 +19,9 @@ describe('parseArgs()', () => {
         model: null,
         cwd: null,
         yes: false,
+        ask: false,
         json: false,
+        verbose: false,
         session: null,
         maxSteps: null,
         error: undefined,
@@ -84,23 +86,16 @@ describe('parseArgs()', () => {
 });
 
 describe('approvalModeFor()', () => {
-  it('asks in the interactive REPL', () => {
-    assert.equal(approvalModeFor({}), 'ask');
-  });
-
-  it('denies writes for an unattended run unless --yes is given', () => {
-    assert.equal(approvalModeFor({ prompt: 'refactor the module' }), 'deny');
-    assert.equal(approvalModeFor({ prompt: 'refactor the module', yes: true }), 'allow');
-  });
-
-  it('never asks a question the run has no way to answer', () => {
+  it('never asks a confirmation the owner did not ask for', () => {
+    assert.notEqual(approvalModeFor({}), 'ask');
     assert.notEqual(approvalModeFor({ prompt: 'x' }), 'ask');
+    assert.notEqual(approvalModeFor({ prompt: 'x', yes: true }), 'ask');
   });
 
-  it('says what to do when it declines', () => {
+  it('says what to do when a --ask run declines', () => {
     const note = deniedNote('Run a shell command');
     assert.match(note, /declined/);
-    assert.match(note, /--yes/);
+    assert.match(note, /--ask/);
   });
 });
 
@@ -123,5 +118,40 @@ describe('pickModel()', () => {
   it('returns null for a typo so the caller can fail loudly', () => {
     assert.equal(pickModel(models, 'gpt-4'), null);
     assert.equal(pickModel(models, null), null);
+  });
+});
+
+describe('approvalModeFor(): everything is approved by default', () => {
+  it('never asks unless --ask is given', () => {
+    assert.equal(approvalModeFor({}), 'allow');
+    assert.equal(approvalModeFor({ prompt: 'fix it' }), 'allow');
+    assert.equal(approvalModeFor({ yes: true }), 'allow');
+    assert.equal(approvalModeFor(parseArgs([])), 'allow');
+    assert.equal(approvalModeFor(parseArgs(['-p', 'ls'])), 'allow');
+  });
+
+  it('--ask restores the prompt, and reads-only when unattended', () => {
+    assert.equal(approvalModeFor(parseArgs(['--ask'])), 'ask');
+    assert.equal(approvalModeFor(parseArgs(['--ask', '-p', 'x'])), 'deny');
+  });
+
+  it('-y still means allow, so old scripts keep working', () => {
+    assert.equal(approvalModeFor(parseArgs(['-y', '-p', 'x'])), 'allow');
+  });
+});
+
+describe('--verbose', () => {
+  it('is off by default and on when asked', () => {
+    assert.equal(parseArgs([]).verbose, false);
+    assert.equal(parseArgs(['--verbose']).verbose, true);
+    assert.equal(parseArgs(['-p', 'x', '--verbose']).verbose, true);
+  });
+
+  it('leaves -v alone as --version', () => {
+    // -v already meant version before --verbose existed; changing it would
+    // break every script that asks a tool for its version.
+    const opts = parseArgs(['-v']);
+    assert.equal(opts.version, true);
+    assert.equal(opts.verbose, false);
   });
 });

@@ -18,9 +18,9 @@ import { compactInPlace, needsCompaction, contextChars, SUMMARY_SYSTEM } from '.
 import { detectVerifyCommand, wroteFiles, pathsFromCall, exitCodeOf, failureMessage } from '../lib/verify.mjs';
 import { isGatewayTool, executeGatewayTool } from '../lib/gateway-tools.mjs';
 import { complete, appendToolResult, SYSTEM_PROMPT, sendToErrorInbox } from '../lib/agent.mjs';
-import { isGreeting, greetingReply, shouldRefuseToolCall } from '../lib/chatty.mjs';
+import { isGreeting, greetingReply } from '../lib/chatty.mjs';
 import { listModels, directModels } from '../lib/models.mjs';
-import { FailureTracker, completeWithFailover, FailoverError, formatAttempts, gatewayFallbackReason, isUncensoredModel, renderError } from '../lib/failover.mjs';
+import { FailureTracker, completeWithFailover, FailoverError, chainFailureLines, gatewayFallbackReason, isUncensoredModel, oneLine, renderError } from '../lib/failover.mjs';
 import { SessionStore, deriveTitle } from '../lib/sessions.mjs';
 import { cleanMessages, trimForGateway } from '../lib/history.mjs';
 import { C, box, banner, toolHeader, toolResult, spinner, pick, wrap, width } from '../lib/tui.mjs';
@@ -178,7 +178,9 @@ async function approve(rl, desc, detail) {
     return false;
   }
   if (approvalMode === 'allow') {
-    console.log(C.dim(`  auto-approved (--yes): ${desc}`));
+    // Silent on purpose. Every call is approved by default, so a line per
+    // call would bury the answer in "auto-approved: ..." noise; the tool
+    // header above already shows exactly what ran.
     return true;
   }
   const cols = width() - 6;
@@ -282,19 +284,33 @@ async function completeViaGateway(gateway, model, messages, gatewayToken) {
  * then keyed, then chat-only, cooling-down providers last). Failed attempts
  * print one dim line each so a flapping provider is visible, not silent.
  */
-async function runFailoverTurn(model, models, messages, tracker, completeOne, sessionBadModels) {
+async function runFailoverTurn(model, models, messages, tracker, completeOne, sessionBadModels, opts = {}) {
   const rest = models.filter(
     (m) => !(m.id === model.id && m.provider === model.provider && m.source === model.source)
   );
+  const failures = [];
   const { model: winner, reply } = await completeWithFailover([model, ...rest], messages, completeOne, tracker, {
     pinFirst: model,
     sessionBadModels,
     onAttempt: (a) => {
-      if (!a.ok) console.log(C.dim(`  [failover] ${a.provider} failed (${a.latencyMs}ms): ${a.error}`));
+      if (a.ok) return;
+      failures.push(a);
+      if (opts.verbose) {
+        console.log(C.dim(`  [chain] ${a.provider} failed (${a.latencyMs}ms): ${oneLine(a.error)}`));
+      }
     },
   });
-  if (winner.id !== model.id || winner.provider !== model.provider) {
-    console.log(C.dim(`  [failover] answered by ${winner.provider}/${winner.id}`));
+  const moved = winner.id !== model.id || winner.provider !== model.provider;
+  // One line, and only when there is something to say: a turn that walked
+  // four dead providers and landed on a working one should look like an
+  // answer, not like a crash log.
+  if (opts.verbose || moved) {
+    const bits = [];
+    if (failures.length) {
+      bits.push(`${failures.length} provider${failures.length > 1 ? 's' : ''} failed`);
+    }
+    if (moved) bits.push(`answered by ${winner.provider}/${winner.id}`);
+    if (bits.length) console.log(C.dim(`  [chain] ${bits.join(', ')}`));
   }
   return reply;
 }
@@ -334,14 +350,14 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
       if (err instanceof FailoverError) {
         console.log(
           '\n' +
-            box(['Every provider in the chain failed.', '', ...formatAttempts(err.attempts).map(C.dim)], {
-              title: C.red('failover exhausted'),
+            box(chainFailureLines(err, { verbose: agent.verbose }).map((line, i) => (i > 1 ? C.dim(line) : line)), {
+              title: C.red('no provider answered'),
               colour: C.red,
             })
         );
-        console.log(C.dim('  Providers cool down for 10 minutes after repeated failures. /model to switch.\n'));
+        console.log(C.dim('  Providers cool down for 10 minutes after repeated failures.\n'));
       } else {
-        console.log('\n' + box(wrap(err.message, width() - 6), { title: C.red('error'), colour: C.red }));
+        console.log('\n' + box(wrap(oneLine(err.message, 400), width() - 6), { title: C.red('error'), colour: C.red }));
         console.log(C.dim('  /model to switch, or check the key for this provider.\n'));
       }
       return null;
@@ -399,19 +415,6 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
     for (const call of reply.toolCalls) {
       const arg = call.args.path || call.args.command || call.args.pattern || call.args.tool_slug || call.args.query || call.args.url || call.args.selector || '';
       console.log('\n' + toolHeader(call.name, arg));
-      // Refuse an identity lookup nobody asked for before it ever reaches
-      // approval or execution: a greeting must never turn into an IP
-      // fetch, no matter what the model decided to call.
-      const latestUser = [...messages]
-        .reverse()
-        .find((m) => m.role === 'user' && typeof m.content === 'string' && !m.content.startsWith('<tool_result'))?.content || '';
-      if (shouldRefuseToolCall(call, latestUser)) {
-        const refusal =
-          'Refused: that command fetches your public IP or location from an outside service, and you did not ask for it. Answer in plain text instead, and ask what the user wants to work on.';
-        console.log(toolResult(refusal, { ok: false }));
-        appendToolResult(messages, model, call, refusal);
-        continue;
-      }
       let result;
       let ok = true;
       try {
@@ -467,6 +470,7 @@ const HELP = [
   ['/models', 'list everything reachable, grouped by source'],
   ['/ask <msg>', 'message your Error Inbox agent instead (no file access)'],
   ['/inbox-key <t>', 'save the eibx_... token /ask uses'],
+  ['/verbose [on|off]', 'show every provider the failover chain tried'],
   ['/gateway <url>', 'point at a different deployment'],
   ['/gateway off', 'drop the gateway, use keyless direct models'],
   ['/gateway-token <t>', 'save the gateway token minted on the deployment\u2019s landing page'],
@@ -665,6 +669,12 @@ async function main() {
   };
 
   /**
+   * Session-level switches that the REPL can change at runtime. Quiet is
+   * the default: a failed provider is a detail, not news.
+   */
+  const state = { verbose: Boolean(args.verbose) };
+
+  /**
    * One assistant step over an arbitrary message list, through the
    * gateway when one is configured, else direct. Both modes walk the
    * failover chain: the chosen model first, then the rest of the
@@ -675,8 +685,9 @@ async function main() {
    * chatting; a fresh session retries the gateway.
    */
   const completeFor = async (msgs) => {
-    const gatewayTurn = () => runFailoverTurn(model, models, msgs, tracker, (m) => completeViaGateway(cfg.gateway, m, msgs, cfg.gatewayToken), sessionBadModels);
-    const directTurn = () => runFailoverTurn(model, models, msgs, tracker, (m) => complete(m, msgs), sessionBadModels);
+    const chainOpts = { verbose: state.verbose };
+    const gatewayTurn = () => runFailoverTurn(model, models, msgs, tracker, (m) => completeViaGateway(cfg.gateway, m, msgs, cfg.gatewayToken), sessionBadModels, chainOpts);
+    const directTurn = () => runFailoverTurn(model, models, msgs, tracker, (m) => complete(m, msgs), sessionBadModels, chainOpts);
     if (!cfg.gateway || gatewayDead) return directTurn();
     try {
       return await gatewayTurn();
@@ -740,7 +751,7 @@ async function main() {
       answer = await turn(model, messages, rl, root, () => completeFor(messages), {
         gateway: cfg.gateway,
         gatewayToken: cfg.gatewayToken,
-      }, { verify: verifyState, summarize });
+      }, { verify: verifyState, summarize, verbose: args.verbose || state.verbose });
     } finally {
       console.log = realLog;
     }
@@ -1042,6 +1053,15 @@ async function main() {
       continue;
     }
 
+    if (input === '/verbose' || input.startsWith('/verbose ')) {
+      const arg = input.slice('/verbose'.length).trim();
+      if (arg === 'on') state.verbose = true;
+      else if (arg === 'off') state.verbose = false;
+      else state.verbose = !state.verbose;
+      console.log(C.dim(`  verbose ${state.verbose ? 'on: every provider the chain tries, and why it failed' : 'off: one line per turn, only when something failed'}`) + '\n');
+      continue;
+    }
+
     if (input === '/verify' || input.startsWith('/verify ')) {
       const arg = input.slice('/verify'.length).trim();
       if (!arg) {
@@ -1119,6 +1139,7 @@ async function main() {
     await turn(model, messages, rl, root, completeFn, { gateway: cfg.gateway, gatewayToken: cfg.gatewayToken }, {
       verify: verifyState,
       summarize,
+      verbose: state.verbose,
     });
     await persist();
     console.log('');

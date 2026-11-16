@@ -683,3 +683,46 @@ describe('retry-after parsing and pacing', () => {
     assert.ok(elapsed >= 900, `expected the chain to honour the 1s retry-after, took ${elapsed}ms`);
   });
 });
+
+describe('quiet failure reporting', async () => {
+  const { chainFailureLines, oneLine } = await import('../lib/failover.mjs');
+  const attempts = [
+    { ok: false, provider: 'horde', modelId: 'm1', latencyMs: 900, error: 'HTTP 429 rate limited' },
+    { ok: false, provider: 'llm7', modelId: 'm2', latencyMs: 30, error: 'socket hang up' },
+    { ok: false, provider: 'pollinations', modelId: 'm3', latencyMs: 4000, error: 'HTTP 500\nat fetch (/x.js:1:2)' },
+  ];
+
+  it('summarises nineteen failed providers in a handful of lines', () => {
+    const many = Array.from({ length: 19 }, (_, i) => ({
+      ok: false, provider: `p${i}`, modelId: `m${i}`, latencyMs: 10,
+      error: `provider ${i} exploded with a very long message that goes on and on and on about sockets`,
+    }));
+    const lines = chainFailureLines({ attempts: many });
+    assert.ok(lines.length <= 5, `expected a short box, got ${lines.length} lines`);
+    assert.match(lines[0], /19 tried/);
+    assert.equal(lines.filter((l) => l.startsWith('[fail]')).length, 0);
+    // The detail is one line, cut short, never a stack.
+    assert.ok(lines[2].length <= 141, lines[2]);
+    assert.doesNotMatch(lines.join('\n'), /at fetch/);
+  });
+
+  it('keeps the per-provider table behind verbose', () => {
+    const lines = chainFailureLines({ attempts }, { verbose: true });
+    assert.match(lines[0], /Every provider in the chain failed/);
+    assert.ok(lines.some((l) => l.startsWith('[fail] horde/m1')));
+    assert.equal(lines.filter((l) => l.startsWith('[fail]')).length, 3);
+  });
+
+  it('says something useful when there were no attempts at all', () => {
+    const lines = chainFailureLines({});
+    assert.match(lines[0], /0 tried/);
+    assert.match(lines.join('\n'), /\/model/);
+  });
+
+  it('oneLine flattens whitespace and caps the length', () => {
+    assert.equal(oneLine('a\n\n  b\tc'), 'a b c');
+    const long = oneLine('x'.repeat(300), 40);
+    assert.equal(long.length, 40);
+    assert.ok(long.endsWith('…'));
+  });
+});

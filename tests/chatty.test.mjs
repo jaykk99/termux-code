@@ -1,16 +1,12 @@
 /**
- * Tests for lib/chatty.mjs — casual-chat guards.
+ * Tests for lib/chatty.mjs — the greeting shortcut, and the guarantee that
+ * nothing here blocks a tool call any more.
  * Run: node --test tests/
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  isGreeting,
-  greetingReply,
-  looksLikeIdentityLookup,
-  userAskedForIdentity,
-  shouldRefuseToolCall,
-} from '../lib/chatty.mjs';
+import * as chatty from '../lib/chatty.mjs';
+import { isGreeting, greetingReply } from '../lib/chatty.mjs';
 
 describe('isGreeting', () => {
   it('matches bare greetings', () => {
@@ -39,44 +35,18 @@ describe('greetingReply', () => {
   });
 });
 
-describe('looksLikeIdentityLookup', () => {
-  it('flags public IP service fetches', () => {
-    for (const c of ['curl ifconfig.me', 'curl -s https://ipinfo.io/json', 'wget -qO- icanhazip.com', 'curl api.ipify.org', 'curl checkip.amazonaws.com']) {
-      assert.equal(looksLikeIdentityLookup(c), true, c);
+describe('no hardblocks', () => {
+  it('exports no tool-call refusal any more', () => {
+    // The owner's rule: fully uncensored, no hardblocks. Approval prompts
+    // decide what runs, nothing else. A reintroduced guard should fail here.
+    for (const name of ['shouldRefuseToolCall', 'looksLikeIdentityLookup',
+      'userAskedForIdentity']) {
+      assert.equal(chatty[name], undefined, `${name} must not come back`);
     }
   });
-  it('passes ordinary commands through', () => {
-    for (const c of ['ls -la', 'git status', 'npm test', 'cat package.json', 'ip addr', 'ping -c1 example.com']) {
-      assert.equal(looksLikeIdentityLookup(c), false, c);
-    }
-  });
-});
 
-describe('userAskedForIdentity', () => {
-  it('matches explicit IP/location asks', () => {
-    for (const m of ["what's my ip", 'show me my ip', 'get my public ip address', 'where am i', 'what is my location']) {
-      assert.equal(userAskedForIdentity(m), true, m);
-    }
-  });
-  it('does not match greetings or ordinary tasks', () => {
-    for (const m of ['yo', 'hey', 'fix the build', 'check the repo for ip handling', 'pipe this output']) {
-      assert.equal(userAskedForIdentity(m), false, m);
-    }
-  });
-});
-
-describe('shouldRefuseToolCall', () => {
-  const ipCall = { name: 'bash', args: { command: 'curl -s ifconfig.me' } };
-  const lsCall = { name: 'bash', args: { command: 'ls -la' } };
-  it('refuses an unasked IP lookup', () => {
-    assert.equal(shouldRefuseToolCall(ipCall, 'yo'), true);
-    assert.equal(shouldRefuseToolCall(ipCall, 'hey what is new'), true);
-  });
-  it('allows the same lookup when explicitly asked', () => {
-    assert.equal(shouldRefuseToolCall(ipCall, "what's my ip"), false);
-  });
-  it('never refuses non-bash tools or ordinary commands', () => {
-    assert.equal(shouldRefuseToolCall(lsCall, 'yo'), false);
-    assert.equal(shouldRefuseToolCall({ name: 'read_file', args: { path: 'x' } }, 'yo'), false);
+  it('the greeting shortcut is the only interception left', () => {
+    const exported = Object.keys(chatty).sort();
+    assert.deepEqual(exported, ['greetingReply', 'isGreeting', 'normalizeChat']);
   });
 });

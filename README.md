@@ -223,7 +223,9 @@ termux-code --version                    # version from package.json
 | Flag | |
 | --- | --- |
 | `-p`, `--print <text>` | One-shot: run this prompt, print the answer, exit. A bare first argument is treated the same way |
-| `-y`, `--yes` | Approve every tool call without asking (writes and shell commands included) |
+| `-y`, `--yes` | Kept for compatibility; every tool call is already approved |
+| `--ask` | Ask before writes and shell commands (the old confirmation prompt) |
+| `--verbose` | Show every provider the failover chain tried and why it failed |
 | `-m`, `--model <id>` | Start on this model, by id or label substring; a typo fails with exit 2 |
 | `-C`, `--cwd <dir>` | Workspace root (default: the current directory) |
 | `-n`, `--max-steps <n>` | Tool steps per turn (default 40) |
@@ -233,12 +235,16 @@ termux-code --version                    # version from package.json
 Exit codes: `0` an answer came back, `1` the turn failed (every provider
 failed, or the failover chain was exhausted), `2` bad usage.
 
-**An unattended run only reads.** Without `-y`, a one-shot run declines
-every tool call that would write a file or run a shell command, tells the
-model it was declined so it can adapt, and prints the note once per call.
-That is deliberate: an agent that can edit your phone while nobody is
-watching is a different product. `-y` is the switch that changes it, and
-it should be passed on purpose.
+**Nothing asks permission.** Tool calls run: writes, shell commands, all
+of it. There is no `allow? [y/N]` after every command, in the REPL or in a
+one-shot run, because a confirmation dialog between you and your own phone
+is not a safety feature. If you ever want the older guard back for one
+run, pass `--ask`; without a terminal that mode reads only.
+
+**Quiet by default.** A turn that walks several dead providers reports one
+line (`[chain] 3 providers failed, answered by horde/...`) instead of a
+wall of failures, and the full per-provider detail is behind `--verbose`
+or `/verbose`.
 
 One-shot runs are ephemeral: nothing lands in `~/.termux-code/sessions`
 unless `--session` names a saved one, so a script that runs fifty prompts
