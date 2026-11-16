@@ -24,12 +24,14 @@ import { FailureTracker, completeWithFailover, FailoverError, formatAttempts, ga
 import { SessionStore, deriveTitle } from '../lib/sessions.mjs';
 import { cleanMessages, trimForGateway } from '../lib/history.mjs';
 import { C, box, banner, toolHeader, toolResult, spinner, pick, wrap, width } from '../lib/tui.mjs';
+import { parseArgs, USAGE, approvalModeFor, deniedNote, pickModel } from '../lib/cli-args.mjs';
 
 const CONFIG_DIR = path.join(os.homedir(), '.termux-code');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 const SESSIONS_DIR = path.join(CONFIG_DIR, 'sessions');
 const HISTORY_FILE = path.join(CONFIG_DIR, 'history');
-const MAX_STEPS = 40;
+/** Tool steps per turn. Peer of the --max-steps flag, so it is mutable. */
+let MAX_STEPS = 40;
 const MAX_VERIFY_ATTEMPTS = 3;
 const VERIFY_TIMEOUT_MS = 180_000;
 const HISTORY_KEEP = 200;
@@ -160,11 +162,25 @@ function ask(rl, question) {
 }
 
 /**
+ * 'ask' (default, interactive), 'allow' (--yes) or 'deny' (unattended run
+ * without --yes: reads still work, writes and shell commands do not).
+ */
+let approvalMode = 'ask';
+
+/**
  * The approval gate. Shows the change in a box before anything touches disk
  * or the shell, because an agent that edits your phone unsupervised is a
  * different and much worse product.
  */
 async function approve(rl, desc, detail) {
+  if (approvalMode === 'deny') {
+    console.log(C.dim(`  ${deniedNote(desc)}`));
+    return false;
+  }
+  if (approvalMode === 'allow') {
+    console.log(C.dim(`  auto-approved (--yes): ${desc}`));
+    return true;
+  }
   const cols = width() - 6;
   const lines = detail ? wrap(detail, cols).slice(0, 12) : [];
   console.log(
@@ -252,6 +268,11 @@ async function completeViaGateway(gateway, model, messages, gatewayToken) {
   if (!data.assistantMessage) {
     data.assistantMessage = { role: 'assistant', content: data.text ?? '' };
   }
+  // toolCalls is read with .length by the turn loop; a gateway (or a stub)
+  // that answers a plain question without the field used to crash the turn
+  // with "Cannot read properties of undefined". Normalise it here, next to
+  // the assistantMessage guard that exists for the same reason.
+  if (!Array.isArray(data.toolCalls)) data.toolCalls = [];
   return data;
 }
 
@@ -323,7 +344,7 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
         console.log('\n' + box(wrap(err.message, width() - 6), { title: C.red('error'), colour: C.red }));
         console.log(C.dim('  /model to switch, or check the key for this provider.\n'));
       }
-      return;
+      return null;
     }
     spin.stop();
 
@@ -345,18 +366,20 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
 
     if (!reply.toolCalls.length) {
       // The model thinks it's done. Check its work if it changed anything.
+      // Every exit below returns the final answer so a one-shot run can
+      // report it (and set its exit code); null means the turn failed.
       const v = agent.verify;
-      if (!changed.size || !v?.enabled || !v.command) return;
+      if (!changed.size || !v?.enabled || !v.command) return reply.text ?? '';
       if (verifyAttempts >= MAX_VERIFY_ATTEMPTS) {
         console.log(C.red(`\n  [verify] still failing after ${MAX_VERIFY_ATTEMPTS} fix attempts. Stopping here so you can take a look.`));
-        return;
+        return reply.text ?? null;
       }
       if (!v.approved) {
         v.approved = await approve(rl, `Verify changes: run \`${v.command}\` (asked once per session)`, v.command);
         if (!v.approved) {
           v.enabled = false;
           console.log(C.dim('  [verify] off for this session. /verify on to re-enable.'));
-          return;
+          return reply.text ?? '';
         }
       }
       verifyAttempts++;
@@ -366,7 +389,7 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
       spinV.stop();
       if (exitCodeOf(output) === 0) {
         console.log(toolResult(`passed (${v.command})`, { ok: true }));
-        return;
+        return reply.text ?? '';
       }
       console.log(toolResult(output.split('\n').slice(-12).join('\n'), { ok: false }));
       messages.push({ role: 'user', content: failureMessage(v.command, output, verifyAttempts, MAX_VERIFY_ATTEMPTS, changed) });
@@ -434,6 +457,7 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
     }
   }
   console.log('\n' + C.red(`Stopped after ${MAX_STEPS} tool steps. Say "continue" to resume.`));
+  return null;
 }
 
 /* ---------- entry ---------- */
@@ -463,7 +487,82 @@ const HELP = [
   ['/exit', 'quit'],
 ];
 
+/** Version comes from package.json so there is one place to bump it. */
+async function versionString() {
+  try {
+    const pkg = JSON.parse(
+      await fs.readFile(new URL('../package.json', import.meta.url), 'utf8')
+    );
+    return `termux-code ${pkg.version}`;
+  } catch {
+    return 'termux-code (version unavailable: package.json not readable)';
+  }
+}
+
+/**
+ * Read a piped prompt: `echo "fix the build" | termux-code`, or
+ * `cat spec.md | termux-code`. Returns null when stdin is a terminal.
+ */
+async function readStdin() {
+  if (process.stdin.isTTY) return null;
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(chunk);
+  const text = Buffer.concat(chunks).toString('utf8').trim();
+  return text || null;
+}
+
+/** Stand-in for readline in one-shot mode: nothing ever prompts. */
+function quietIo() {
+  return {
+    closed: false,
+    question: (_q, cb) => cb(''),
+    close() {},
+  };
+}
+
 async function main() {
+  // ---- command line --------------------------------------------------
+  // Before this, the CLI ignored argv entirely: `--help` and `--version`
+  // started a full session and printed the banner instead.
+  const args = parseArgs(process.argv.slice(2));
+  if (args.error) {
+    console.error(C.red(`termux-code: ${args.error}`));
+    console.error(C.dim('  termux-code --help for the usage'));
+    process.exitCode = 2;
+    return;
+  }
+  if (args.help) {
+    console.log(USAGE);
+    return;
+  }
+  if (args.version) {
+    console.log(await versionString());
+    return;
+  }
+  if (args.cwd) {
+    try {
+      process.chdir(args.cwd);
+    } catch (err) {
+      console.error(C.red(`termux-code: cannot use ${args.cwd}: ${err.message}`));
+      process.exitCode = 2;
+      return;
+    }
+  }
+  approvalMode = approvalModeFor(args);
+  if (args.maxSteps) MAX_STEPS = args.maxSteps;
+
+  // A piped prompt counts as one-shot too, and one-shot without --yes
+  // only reads: an unattended run must not edit the phone.
+  let prompt = args.prompt;
+  if (!prompt) {
+    const piped = await readStdin();
+    if (piped) {
+      prompt = piped;
+      approvalMode = approvalModeFor({ ...args, prompt });
+    }
+  }
+  const oneShot = Boolean(prompt);
+
   const root = process.cwd();
   const cfg = await loadConfig();
 
@@ -491,6 +590,21 @@ async function main() {
     models.find((m) => m.free && !NO_TOOLS.has(m.provider)) ||
     models[0];
 
+  // --model wins over the saved /model choice when it names something real;
+  // a typo must fail loudly instead of quietly running on another model.
+  if (args.model) {
+    const chosen = pickModel(models, args.model);
+    if (!chosen) {
+      console.error(
+        C.red(`termux-code: no model matches ${JSON.stringify(args.model)}.`) +
+          C.dim(' Run /models inside the REPL to see the catalogue.')
+      );
+      process.exitCode = 2;
+      return;
+    }
+    model = chosen;
+  }
+
   if (!model) {
     console.log(
       box(
@@ -504,8 +618,10 @@ async function main() {
     return;
   }
 
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  await loadHistory(rl);
+  const rl = oneShot
+    ? quietIo()
+    : readline.createInterface({ input: process.stdin, output: process.stdout });
+  if (!oneShot) await loadHistory(rl);
 
   const store = new SessionStore(SESSIONS_DIR);
   const tracker = new FailureTracker();
@@ -514,7 +630,16 @@ async function main() {
   // its entries without spending a call, so one stale model id costs
   // exactly one fast failure per session instead of one per turn.
   const sessionBadModels = new Set();
-  let session = await resumeSession(store);
+  // One-shot runs are ephemeral unless --session names a saved one: a
+  // script that runs fifty prompts must not fill the session list.
+  let session;
+  if (oneShot) {
+    session = args.session
+      ? (await store.load(args.session)) || (await store.create('untitled'))
+      : { meta: { id: null, title: 'untitled' }, messages: [] };
+  } else {
+    session = await resumeSession(store);
+  }
   // Sessions saved before the gateway-shape fix can carry poisoned entries
   // (an undefined assistant message serialized as null); drop them here so
   // a poisoned session self-heals instead of failing every later message.
@@ -527,6 +652,7 @@ async function main() {
    *  save is no longer silent: if the phone can't write, Jay should know
    *  his turns may not survive a restart. */
   const persist = async () => {
+    if (!session.meta.id) return; // one-shot without --session: nothing to save
     try {
       if (session.meta.title === 'untitled') {
         const title = deriveTitle(messages, 'untitled');
@@ -584,21 +710,59 @@ async function main() {
     approved: false,
   };
 
-  console.log(
-    banner({
-      cwd: path.basename(root),
-      model: model.label,
-      source: model.source,
-      free: model.free,
-    })
-  );
-  console.log('  ' + sessionHeadline(session));
-  console.log(C.dim('  /help for commands · ctrl-c to quit\n'));
+  if (!oneShot) {
+    console.log(
+      banner({
+        cwd: path.basename(root),
+        model: model.label,
+        source: model.source,
+        free: model.free,
+      })
+    );
+    console.log('  ' + sessionHeadline(session));
+    console.log(C.dim('  /help for commands · ctrl-c to quit\n'));
+  }
 
   // Once the gateway path fails (token rejected, or every provider failed
   // through it), stay on keyless direct models for the rest of the
   // session; a fresh /gateway-token re-enables the gateway.
   let gatewayDead = false;
+
+  // One prompt, no REPL. Exit 0 only when the turn actually produced an
+  // answer, so `termux-code -p ...` is usable from a script.
+  if (oneShot) {
+    messages.push({ role: 'user', content: prompt });
+    await persist();
+    const realLog = console.log;
+    if (args.json) console.log = (...a) => console.error(...a); // keep stdout clean
+    let answer = null;
+    try {
+      answer = await turn(model, messages, rl, root, () => completeFor(messages), {
+        gateway: cfg.gateway,
+        gatewayToken: cfg.gatewayToken,
+      }, { verify: verifyState, summarize });
+    } finally {
+      console.log = realLog;
+    }
+    await persist();
+    if (args.json) {
+      const ok = typeof answer === 'string';
+      realLog(
+        JSON.stringify({
+          ok,
+          answer: ok ? answer : null,
+          model: model.id,
+          provider: model.provider,
+          source: model.source,
+          steps: MAX_STEPS,
+          savedSession: session.meta.id || null,
+        })
+      );
+    }
+    if (typeof answer !== 'string') process.exitCode = 1;
+    if (rl.close) rl.close();
+    return;
+  }
 
   for (;;) {
     const raw = await ask(rl, `${C.amber('❯')} `);

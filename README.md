@@ -207,6 +207,43 @@ and `/model` picker both flag these as "chat only, no file access." The
 catalogue API reports the same honestly as `capabilities: { chat, tools }`
 on every model.
 
+## Command line
+
+The CLI takes flags, not just slash commands, so it also works from a
+script or an agent:
+
+```sh
+termux-code                              # the REPL, as before
+termux-code -p "add a test for parse()"  # one prompt, print the answer, exit
+cat spec.md | termux-code                # the prompt can come from stdin
+termux-code --help                       # usage
+termux-code --version                    # version from package.json
+```
+
+| Flag | |
+| --- | --- |
+| `-p`, `--print <text>` | One-shot: run this prompt, print the answer, exit. A bare first argument is treated the same way |
+| `-y`, `--yes` | Approve every tool call without asking (writes and shell commands included) |
+| `-m`, `--model <id>` | Start on this model, by id or label substring; a typo fails with exit 2 |
+| `-C`, `--cwd <dir>` | Workspace root (default: the current directory) |
+| `-n`, `--max-steps <n>` | Tool steps per turn (default 40) |
+| `--session <id>` | One-shot into an existing session and save it |
+| `--json` | One-shot: a single JSON object on stdout (`{ok, answer, model, provider, source, steps, savedSession}`), traces diverted to stderr |
+
+Exit codes: `0` an answer came back, `1` the turn failed (every provider
+failed, or the failover chain was exhausted), `2` bad usage.
+
+**An unattended run only reads.** Without `-y`, a one-shot run declines
+every tool call that would write a file or run a shell command, tells the
+model it was declined so it can adapt, and prints the note once per call.
+That is deliberate: an agent that can edit your phone while nobody is
+watching is a different product. `-y` is the switch that changes it, and
+it should be passed on purpose.
+
+One-shot runs are ephemeral: nothing lands in `~/.termux-code/sessions`
+unless `--session` names a saved one, so a script that runs fifty prompts
+does not bury the conversation you were actually in.
+
 ## Commands
 
 | Command | |
@@ -258,9 +295,11 @@ across restarts (`~/.termux-code/history`, last 200 commands).
 
 ## Tests
 
-`npm test` runs the `node:test` battery in `tests/`: gateway HTTP helpers,
-the model registry and its trusted resolution, the failover chain and
-circuit breaker, and session persistence.
+`npm test` runs the `node:test` battery in `tests/` (425 tests): gateway HTTP
+helpers, the model registry and its trusted resolution, the failover chain and
+circuit breaker, session persistence, the CLI argument parser, and an
+end-to-end one-shot run against a stub gateway — including the check that an
+unattended run declines a shell command and tells the model so.
 
 ## Tools the local agent has
 
