@@ -64,8 +64,11 @@ chmod +x "$BIN_DIR/termux-code"
 # a token that can never validate again, and re-running the install used
 # to leave it untouched. When the installer carries a gateway and/or token
 # (the site's command always carries both), merge them into the config,
-# keeping everything else (model choice, inbox key) intact.
-if [ -n "${TERMUX_CODE_GATEWAY:-}" ] || [ -n "${TERMUX_CODE_TOKEN:-}" ]; then
+# keeping everything else (model choice, inbox key) intact. The same
+# merge carries Bro: TERMUX_CODE_BRO_URL points the phone at Jay's own
+# uncensored gateway (tunnel URL or Render URL) and TERMUX_CODE_BRO_CODE
+# saves its access code when one is set. Neither is ever printed.
+if [ -n "${TERMUX_CODE_GATEWAY:-}" ] || [ -n "${TERMUX_CODE_TOKEN:-}" ] || [ -n "${TERMUX_CODE_BRO_URL:-}" ] || [ -n "${TERMUX_CODE_BRO_CODE:-}" ]; then
   CONFIG_FILE="$CONFIG" node -e '
     const fs = require("node:fs");
     const path = require("node:path");
@@ -74,6 +77,8 @@ if [ -n "${TERMUX_CODE_GATEWAY:-}" ] || [ -n "${TERMUX_CODE_TOKEN:-}" ]; then
     try { cfg = JSON.parse(fs.readFileSync(file, "utf8")); } catch {}
     if (process.env.TERMUX_CODE_GATEWAY) cfg.gateway = process.env.TERMUX_CODE_GATEWAY;
     if (process.env.TERMUX_CODE_TOKEN) cfg.gatewayToken = process.env.TERMUX_CODE_TOKEN;
+    if (process.env.TERMUX_CODE_BRO_URL) cfg.broBaseUrl = process.env.TERMUX_CODE_BRO_URL;
+    if (process.env.TERMUX_CODE_BRO_CODE) cfg.broAccessCode = process.env.TERMUX_CODE_BRO_CODE;
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + "\n");
   '

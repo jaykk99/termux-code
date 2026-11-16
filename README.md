@@ -70,6 +70,16 @@ termux-code
 The installer clones into `~/.termux-code/app`, drops a launcher on
 `$PREFIX/bin`, and asks for your deployment URL. It never runs `npm install`.
 
+To route the phone through Bro (your own uncensored gateway) instead of
+the keyless chain, re-run the installer with the gateway's public URL —
+`TERMUX_CODE_BRO_URL=https://<your-bro-url> curl -fsSL
+https://termux-code.pages.dev/install.sh | bash` — or set it inside the
+CLI with `/bro <url>` (and `/bro-code <code>` if the gateway ever
+requires one). Bro is tried first whenever a URL is set; AI Horde stays
+the fallback, and `/bro off` removes it. When the phone chats through
+the deployment gateway instead of directly, the deployment itself needs
+`BRO_BASE_URL` in its environment for Bro to appear in its catalogue.
+
 ## Deploy the gateway
 
 ```sh
@@ -87,6 +97,7 @@ error-inbox's own `.env` exactly, so you can copy values straight across:
 | — | Kilo | No — always on |
 | — | LLM7 | No — always on |
 | `AIHORDE_API_KEY` | AI Horde | No — anonymous key works, this just raises priority |
+| `BRO_BASE_URL` (+ optional `BRO_ACCESS_CODE`) | Bro (your own gateway) | No code needed today — the gateway is unauthenticated; the code is sent as a Bearer token only when set. Off until `BRO_BASE_URL` is set; first in the chain once it is, Horde stays the fallback |
 | `GROQ_API_KEY` | Groq | Yes |
 | `GEMINI_API_KEY` | Gemini | Yes (chat only — see below) |
 | `OPENROUTER_API_KEY` | OpenRouter | Yes |
@@ -205,6 +216,8 @@ on every model.
 | `/ask <message>` | Message your error-inbox agent instead (no file access) |
 | `/inbox-key <token>` | Save the `eibx_...` token `/ask` uses |
 | `/gateway <url>` | Point at a different deployment |
+| `/bro <url>` | Point Bro at your gateway (tunnel URL or Render URL); `/bro off` stops using it |
+| `/bro-code <code>` | Save the Bro access code (never printed back) |
 | `/sessions` | List saved conversation sessions |
 | `/session <n>` | Resume a session by number or id |
 | `/new` | Start a new session |
