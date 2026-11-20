@@ -301,11 +301,14 @@ across restarts (`~/.termux-code/history`, last 200 commands).
 
 ## Tests
 
-`npm test` runs the `node:test` battery in `tests/` (425 tests): gateway HTTP
+`npm test` runs the `node:test` battery in `tests/` (622 tests): gateway HTTP
 helpers, the model registry and its trusted resolution, the failover chain and
 circuit breaker, session persistence, the CLI argument parser, and an
 end-to-end one-shot run against a stub gateway — including the check that an
-unattended run declines a shell command and tells the model so.
+unattended run declines a shell command and tells the model so. The
+uncovered core modules have suites too: context compaction, plan-and-verify,
+the text tool-calling protocol, the MCP client, unified-diff patching, the
+TUI primitives, gateway-tool dispatch, the audit log, and the token store.
 
 ## Tools the local agent has
 
