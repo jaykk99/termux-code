@@ -19,6 +19,12 @@ permissions:
   contents: write
   actions: write
 
+# Training writes to a shared branch; serializing runs prevents stale
+# checkpoints from different workers racing each other to the same path.
+concurrency:
+  group: nn-100h-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   train:
     runs-on: ubuntu-latest
@@ -40,17 +46,18 @@ jobs:
         run: |
           git config user.name "nn-100h"
           git config user.email "nn-100h@users.noreply.github.com"
-          # Rebase onto any commits pushed mid-run (e.g. a grid fix),
-          # so the push below does not get rejected as non-fast-forward.
-          # --autostash is required: the trainer always leaves
-          # nn-100h/status.json etc. modified (tracked files), and a
-          # plain pull --rebase refuses a dirty tree with exit 128
-          # (this stalled run 43652137164 after a full 5.5h chunk).
-          git pull --rebase --autostash origin ${{ github.ref_name }}
+          # Commit new, previously untracked checkpoints *before* rebasing.
+          # --autostash only protects tracked changes; it cannot preserve
+          # untracked files when a remote update introduces the same paths.
+          # A true conflict must fail safely rather than overwrite training.
           git add nn-100h/
           HOURS=$(python3 -c "import json; print(round(json.load(open('nn-100h/status.json'))['hours_trained'], 2))")
-          git diff --cached --quiet || git commit -m "nn-100h: checkpoint ${HOURS}h cumulative"
-          git push origin ${{ github.ref_name }}
+          if ! git diff --cached --quiet; then
+            git commit -m "nn-100h: checkpoint ${HOURS}h cumulative"
+          fi
+          git fetch origin "${{ github.ref_name }}"
+          git rebase "origin/${{ github.ref_name }}"
+          git push origin "HEAD:${{ github.ref_name }}"
 
       - name: Chain next chunk
         if: success()
