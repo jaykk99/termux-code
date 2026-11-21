@@ -160,6 +160,27 @@ describe('completeWithFailover()', () => {
     assert.equal(attempts[1].ok, true);
   });
 
+  it('keeps the pinned Horde model first with Pollinations GPT-OSS as the fast fallback', async () => {
+    // Real shapes, no marker in either label: Horde passes via the
+    // allowlist ('horde/any'), Pollinations via its own allowlist entry
+    // ('pollinations/openai'). The pinned primary is tried first; when
+    // it fails, the chain walks to Pollinations instead of dying.
+    const horde = { id: 'any', provider: 'horde', auth: 'horde', free: true, source: 'direct', label: 'Any available worker (slow, last resort)' };
+    const pollinations = { id: 'openai', provider: 'pollinations', auth: 'none', free: true, source: 'direct', label: 'Pollinations OpenAI (keyless)' };
+    let calls = 0;
+    const { model, reply, attempts } = await completeWithFailover([horde, pollinations], [], async (m) => {
+      calls++;
+      if (m.provider === 'horde') throw new Error('Horde: job finished with an empty generation.');
+      return replyFor(m);
+    }, null, { pinFirst: horde });
+    assert.equal(calls, 2);
+    assert.equal(attempts[0].provider, 'horde');
+    assert.equal(attempts[0].ok, false);
+    assert.equal(model.provider, 'pollinations');
+    assert.equal(reply.text, 'from openai');
+    assert.equal(attempts[1].ok, true);
+  });
+
   it('short-circuits on the first success', async () => {
     const models = [M('a', 'kilo', 'none'), M('b', 'llm7', 'none')];
     let calls = 0;

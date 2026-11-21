@@ -28,13 +28,17 @@ describe('isUncensoredModel()', () => {
     assert.equal(isUncensoredModel({ id: 'any', provider: 'horde', label: 'Any available worker (slow, last resort)' }), true);
   });
 
+  it('accepts Pollinations GPT-OSS via the allowlist (fast fallback)', () => {
+    assert.ok(UNCENSORED_ALLOWLIST.has('pollinations/openai'));
+    assert.equal(isUncensoredModel({ id: 'openai', provider: 'pollinations', label: 'Pollinations OpenAI (keyless)' }), true);
+  });
+
   it('rejects aligned flagships and aligned routes', () => {
     assert.equal(isUncensoredModel({ id: 'openai/gpt-4o-mini', provider: 'githubmodels' }), false);
     assert.equal(isUncensoredModel({ id: 'claude-opus-5', provider: 'anthropic', label: 'Claude (heavy tier)' }), false);
     assert.equal(isUncensoredModel({ id: 'gemini-2.5-flash', provider: 'gemini' }), false);
     assert.equal(isUncensoredModel({ id: 'Meta-Llama-3.3-70B-Instruct', provider: 'sambanova', label: 'Llama 3.3 70B' }), false);
     assert.equal(isUncensoredModel({ id: 'codestral-latest', provider: 'llm7', label: 'Codestral (best keyless model)' }), false);
-    assert.equal(isUncensoredModel({ id: 'openai', provider: 'pollinations', label: 'Pollinations OpenAI (keyless)' }), false);
   });
 
   it('rejects opaque routers that can silently land on an aligned model', () => {
