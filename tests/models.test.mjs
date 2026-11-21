@@ -19,16 +19,16 @@ import { isUncensoredModel } from '../lib/uncensored.mjs';
 const EMPTY_ENV = {};
 
 describe('directModels()', () => {
-  it('enables the keyless uncensored route (AI Horde) with no env at all', () => {
+  it('enables the keyless uncensored routes (AI Horde + Pollinations GPT-OSS) with no env at all', () => {
     const models = directModels(EMPTY_ENV);
     const providers = new Set(models.map((m) => m.provider));
     assert.ok(providers.has('horde'));
-    // Kilo / LLM7 / Pollinations are keyless too, but their current
-    // catalogues carry no uncensored-lineage model, so they contribute
-    // nothing — keyless was never the criterion, uncensored is.
+    assert.ok(providers.has('pollinations'));
+    // Kilo / LLM7 are keyless too, but their current catalogues carry no
+    // uncensored-lineage model, so they contribute nothing — keyless was
+    // never the criterion, uncensored is.
     assert.ok(!providers.has('kilo'));
     assert.ok(!providers.has('llm7'));
-    assert.ok(!providers.has('pollinations'));
   });
 
   it('hands out uncensored-lineage models only, whatever keys are set', () => {
@@ -157,12 +157,15 @@ describe('groupBySource()', () => {
   });
 });
 
-describe('pollinations (registry entry kept, pool excluded)', () => {
-  it('stays out of the pool: its only model is an aligned OpenAI route', async () => {
+describe('pollinations (allowlisted GPT-OSS fallback)', () => {
+  it('is in the pool: its route serves GPT-OSS 20B, keyless', async () => {
     const models = directModels(EMPTY_ENV);
     const providers = new Set(models.map((m) => m.provider));
-    assert.ok(!providers.has('pollinations'));
-    assert.equal(await resolveModel({ id: 'openai', provider: 'pollinations', source: 'direct' }, EMPTY_ENV), null);
+    assert.ok(providers.has('pollinations'));
+    const resolved = await resolveModel({ id: 'openai', provider: 'pollinations', source: 'direct' }, EMPTY_ENV);
+    assert.ok(resolved);
+    assert.equal(resolved.provider, 'pollinations');
+    assert.equal(resolved.id, 'openai');
   });
 
   it('keeps its verified endpoint config in the registry', () => {
