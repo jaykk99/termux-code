@@ -19,26 +19,28 @@ const ROOT = path.join(HERE, '..');
 const dataset = JSON.parse(readFileSync(path.join(ROOT, 'nn', 'dataset.json'), 'utf-8'));
 
 describe('nn/dataset.json (built from lib/models.mjs)', () => {
-  it('has 828 rows: 46 registry models x 18 env scenarios', () => {
-    assert.equal(dataset.registry_models, 46);
-    assert.equal(dataset.scenarios.length, 18);
-    assert.equal(dataset.rows, 828);
-    assert.equal(dataset.rows_data.length, 828);
+  it('has 893 rows: 47 registry models x 19 env scenarios', () => {
+    assert.equal(dataset.registry_models, 47);
+    assert.equal(dataset.scenarios.length, 19);
+    assert.equal(dataset.rows, 893);
+    assert.equal(dataset.rows_data.length, 893);
   });
 
   it('has both classes, with the small positive class the filter explains', () => {
-    assert.equal(dataset.n_positive, 30);
-    assert.equal(dataset.n_negative, 798);
+    assert.equal(dataset.n_positive, 52);
+    assert.equal(dataset.n_negative, 841);
     const listed = new Set(
       dataset.rows_data.filter((r) => r.label === 1)
         .map((r) => `${r.provider}/${r.model_id}`),
     );
-    // Only horde/any (always) + the 6 hf models (HF_TOKEN set) survive
-    // the uncensored-only filter + key gating.
-    assert.equal(listed.size, 7);
+    // Only horde/any (always) + pollinations/openai (always, keyless
+    // fallback) + the 6 hf models (HF_TOKEN set) + bro/bro
+    // (BRO_BASE_URL set) survive the uncensored-only filter + key gating.
+    assert.equal(listed.size, 9);
     assert.ok(listed.has('horde/any'));
+    assert.ok(listed.has('pollinations/openai'));
     for (const m of listed) {
-      assert.ok(m.startsWith('horde/') || m.startsWith('hf/'), m);
+      assert.ok(m.startsWith('horde/') || m.startsWith('hf/') || m.startsWith('pollinations/') || m.startsWith('bro/'), m);
     }
   });
 
@@ -62,7 +64,7 @@ describe('nn/train.py smoke train', () => {
         { cwd: ROOT, encoding: 'utf-8', timeout: 110_000 });
       assert.ok(existsSync(path.join(dir, 'weights.json')));
       const viewer = JSON.parse(readFileSync(path.join(dir, 'viewer-data.json'), 'utf-8'));
-      assert.equal(viewer.test_rows, 166);
+      assert.equal(viewer.test_rows, 178);
       assert.ok(viewer.test_metrics.roc_auc >= 0 && viewer.test_metrics.roc_auc <= 1);
       assert.ok(viewer.test_metrics.accuracy >= 0 && viewer.test_metrics.accuracy <= 1);
     } finally {
