@@ -33,6 +33,16 @@ describe('isUncensoredModel()', () => {
     assert.equal(isUncensoredModel({ id: 'openai', provider: 'pollinations', label: 'Pollinations OpenAI (keyless)' }), true);
   });
 
+  it('accepts allowlisted routes whose id already carries the provider key', () => {
+    // error-inbox pool entries keep their "provider/model" key in id so
+    // pin/disable round-trips; without the bare-id check these read as
+    // 'horde/horde/any' and the allowlisted route is dropped from the
+    // inbox leg (found by the fetchErrorInboxModels tests).
+    assert.equal(isUncensoredModel({ id: 'horde/any', provider: 'horde', label: 'any (9/10 recent)' }), true);
+    assert.equal(isUncensoredModel({ id: 'pollinations/openai', provider: 'pollinations', label: 'openai (7/7 recent)' }), true);
+    assert.equal(isUncensoredModel({ id: 'bro/bro', provider: 'bro', label: 'bro (3/3 recent)' }), true);
+  });
+
   it('rejects aligned flagships and aligned routes', () => {
     assert.equal(isUncensoredModel({ id: 'openai/gpt-4o-mini', provider: 'githubmodels' }), false);
     assert.equal(isUncensoredModel({ id: 'claude-opus-5', provider: 'anthropic', label: 'Claude (heavy tier)' }), false);

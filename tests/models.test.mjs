@@ -3,12 +3,16 @@
  * trusted model resolution that closes the SSRF hole.
  * Run: node --test tests/
  */
-import { describe, it } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   PROVIDERS,
   directModels,
   filterKiloFreeModels,
+  fetchGratisfyModels,
+  fetchKiloModels,
+  fetchErrorInboxModels,
+  setErrorInboxPrefs,
   capabilities,
   resolveModel,
   withCapabilities,
@@ -220,5 +224,127 @@ describe('dead model refresh (verified against live lists 2026-10-25)', () => {
     assert.deepEqual(byProvider('llm7'), []);
     assert.ok(!byProvider('kilo').includes('minimax/minimax-m2.7:free'));
     assert.ok(!byProvider('llm7').includes('gemini-3.1-flash-lite'));
+  });
+});
+
+describe('live model-list fetchers (mocked fetch)', () => {
+  const realFetch = globalThis.fetch;
+  let seen;
+  let responder;
+  before(() => {
+    globalThis.fetch = async (url, options) => {
+      seen.push({ url, options });
+      return responder(url, options);
+    };
+  });
+  after(() => { globalThis.fetch = realFetch; });
+  const jsonRes = (body, { ok = true, status = 200 } = {}) => ({
+    ok, status, statusText: '',
+    json: async () => body,
+    text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
+  });
+
+  describe('fetchGratisfyModels()', () => {
+    it('returns [] without a key and never calls the network', async () => {
+      seen = [];
+      responder = () => { throw new Error('fetch must not run without a key'); };
+      assert.deepEqual(await fetchGratisfyModels({}), []);
+      assert.equal(seen.length, 0);
+    });
+
+    it('maps live rows, keeps uncensored-lineage only, honours a custom base URL', async () => {
+      seen = [];
+      responder = () => jsonRes({ data: [
+        { id: 'dolphin-3.0-8b' },
+        { id: 'gpt-4o' },
+        { id: 'stheno-3.2' },
+      ] });
+      const models = await fetchGratisfyModels({ GRATISFY_API_KEY: 'g-key', GRATISFY_BASE_URL: 'https://custom.example/v9' });
+      assert.deepEqual(models.map((m) => m.id), ['dolphin-3.0-8b', 'stheno-3.2']);
+      assert.equal(models[0].provider, 'gratisfy');
+      assert.equal(models[0].url, 'https://custom.example/v9/chat/completions');
+      assert.equal(models[0].free, true);
+      assert.equal(seen[0].url, 'https://custom.example/v9/models');
+      assert.equal(seen[0].options.headers.Authorization, 'Bearer g-key');
+    });
+
+    it('returns [] when the payload has no data array', async () => {
+      seen = [];
+      responder = () => jsonRes({ error: 'nope' });
+      assert.deepEqual(await fetchGratisfyModels({ GRATISFY_API_KEY: 'g-key' }), []);
+    });
+  });
+
+  describe('fetchKiloModels()', () => {
+    it('returns the free uncensored slice of the live list', async () => {
+      seen = [];
+      responder = () => jsonRes({ data: [
+        { id: 'dolphin-3.0:free', name: 'Dolphin 3' },
+        { id: 'gpt-4o:free', name: 'GPT-4o' },
+        { id: 'heretic-8b', name: 'Heretic' },
+      ] });
+      const models = await fetchKiloModels();
+      assert.deepEqual(models.map((m) => m.id), ['dolphin-3.0:free']);
+      assert.equal(seen[0].url, 'https://api.kilo.ai/api/gateway/v1/models');
+    });
+
+    it('returns [] when Kilo does not answer', async () => {
+      responder = () => jsonRes({ error: 'down' }, { ok: false, status: 502 });
+      assert.deepEqual(await fetchKiloModels(), []);
+    });
+  });
+
+  describe('fetchErrorInboxModels()', () => {
+    it('maps the pool, keeps uncensored entries only, and passes prefs through', async () => {
+      seen = [];
+      responder = () => jsonRes({
+        ok: true,
+        prefs: { pinned: 'horde/any', disabled: [] },
+        models: [
+          { key: 'horde/any', provider: 'horde', model: 'any', ok: 9, fail: 1, disabled: false },
+          { key: 'kilo/dolphin-3.0', provider: 'kilo', model: 'dolphin-3.0', ok: 5, fail: 0, disabled: false },
+          { key: 'openai/gpt-4o', provider: 'openai', model: 'gpt-4o', ok: 99, fail: 0, disabled: false },
+        ],
+      });
+      const { models, prefs } = await fetchErrorInboxModels();
+      assert.deepEqual(models.map((m) => m.id), ['horde/any', 'kilo/dolphin-3.0']);
+      assert.equal(models[0].source, 'error-inbox');
+      assert.equal(models[0].label, 'any (9/10 recent)');
+      assert.deepEqual(models[0].stats, { ok: 9, fail: 1 });
+      assert.deepEqual(prefs, { pinned: 'horde/any', disabled: [] });
+      assert.ok(seen[0].url.endsWith('/api/models'));
+    });
+
+    it('yields nothing when the payload is not ok or the fetch fails', async () => {
+      responder = () => jsonRes({ ok: false, models: [] });
+      assert.deepEqual(await fetchErrorInboxModels(), { models: [], prefs: null });
+      responder = () => jsonRes({}, { ok: false, status: 401 });
+      assert.deepEqual(await fetchErrorInboxModels(), { models: [], prefs: null });
+    });
+  });
+
+  describe('setErrorInboxPrefs()', () => {
+    it('POSTs the pin/disable body and returns the parsed reply', async () => {
+      seen = [];
+      responder = () => jsonRes({ ok: true });
+      const out = await setErrorInboxPrefs({ pinned: 'horde/any', disabled: ['kilo/x'] });
+      assert.deepEqual(out, { ok: true });
+      assert.equal(seen[0].options.method, 'POST');
+      assert.deepEqual(JSON.parse(seen[0].options.body), { pinned: 'horde/any', disabled: ['kilo/x'] });
+      assert.ok(seen[0].url.endsWith('/api/models'));
+    });
+
+    it('sends the bearer token when ERROR_INBOX_KEY is set, nulls an absent pin', async () => {
+      seen = [];
+      responder = () => jsonRes({ ok: true });
+      process.env.ERROR_INBOX_KEY = 'eibx_test_key';
+      try {
+        await setErrorInboxPrefs({ disabled: [] });
+      } finally {
+        delete process.env.ERROR_INBOX_KEY;
+      }
+      assert.equal(seen[0].options.headers.Authorization, 'Bearer eibx_test_key');
+      assert.deepEqual(JSON.parse(seen[0].options.body), { pinned: null, disabled: [] });
+    });
   });
 });
