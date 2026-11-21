@@ -1,9 +1,10 @@
 {
-  "built_at": "2026-11-14T06:03:44.060Z",
+  "built_at": "2026-11-20T23:59:35.024Z",
   "source": "lib/models.mjs PROVIDERS + directModels(env), 18 env scenarios",
   "scenarios": [
     "no-keys",
     "only-ANTHROPIC_API_KEY",
+    "only-BRO_BASE_URL",
     "only-CEREBRAS_API_KEY",
     "only-COHERE_API_KEY",
     "only-DEEPINFRA_API_KEY",
@@ -21,14 +22,26 @@
     "only-TOGETHER_API_KEY",
     "all-keys"
   ],
-  "registry_models": 46,
-  "rows": 828,
-  "n_positive": 30,
-  "n_negative": 798,
+  "registry_models": 47,
+  "rows": 893,
+  "n_positive": 52,
+  "n_negative": 841,
   "rows_data": [
     {
       "scenario": "no-keys",
       "env_keys_set": [],
+      "provider": "bro",
+      "model_id": "bro",
+      "label_text": "Bro (uncensored gateway)",
+      "auth": "none",
+      "env_key": "BRO_BASE_URL",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "no-keys",
+      "env_keys_set": [],
       "provider": "kilo",
       "model_id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "label_text": "Nemotron 3 Nano Omni Reasoning",
@@ -132,7 +145,7 @@
       "env_key": null,
       "free": true,
       "tools": true,
-      "label": 0
+      "label": 1
     },
     {
       "scenario": "no-keys",
@@ -583,6 +596,20 @@
       "env_keys_set": [
         "ANTHROPIC_API_KEY"
       ],
+      "provider": "bro",
+      "model_id": "bro",
+      "label_text": "Bro (uncensored gateway)",
+      "auth": "none",
+      "env_key": "BRO_BASE_URL",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-ANTHROPIC_API_KEY",
+      "env_keys_set": [
+        "ANTHROPIC_API_KEY"
+      ],
       "provider": "kilo",
       "model_id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "label_text": "Nemotron 3 Nano Omni Reasoning",
@@ -702,7 +729,7 @@
       "env_key": null,
       "free": true,
       "tools": true,
-      "label": 0
+      "label": 1
     },
     {
       "scenario": "only-ANTHROPIC_API_KEY",
@@ -1223,6 +1250,678 @@
       "label": 0
     },
     {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "bro",
+      "model_id": "bro",
+      "label_text": "Bro (uncensored gateway)",
+      "auth": "none",
+      "env_key": "BRO_BASE_URL",
+      "free": true,
+      "tools": true,
+      "label": 1
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "kilo",
+      "model_id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "label_text": "Nemotron 3 Nano Omni Reasoning",
+      "auth": "none",
+      "env_key": null,
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "kilo",
+      "model_id": "cohere/north-mini-code:free",
+      "label_text": "North Mini Code",
+      "auth": "none",
+      "env_key": null,
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "kilo",
+      "model_id": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "label_text": "Nemotron 3 Ultra 550B",
+      "auth": "none",
+      "env_key": null,
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "kilo",
+      "model_id": "nvidia/nemotron-3-super-120b-a12b:free",
+      "label_text": "Nemotron 3 Super 120B",
+      "auth": "none",
+      "env_key": null,
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "kilo",
+      "model_id": "nvidia/nemotron-3.5-lightning:free",
+      "label_text": "Nemotron 3.5 Lightning",
+      "auth": "none",
+      "env_key": null,
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "llm7",
+      "model_id": "codestral-latest",
+      "label_text": "Codestral (best keyless model)",
+      "auth": "none",
+      "env_key": null,
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "llm7",
+      "model_id": "minimax-m2.7",
+      "label_text": "MiniMax M2.7",
+      "auth": "none",
+      "env_key": null,
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "llm7",
+      "model_id": "mistral-Nemo-Instruct-2407",
+      "label_text": "Mistral Nemo Instruct",
+      "auth": "none",
+      "env_key": null,
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "pollinations",
+      "model_id": "openai",
+      "label_text": "Pollinations OpenAI (keyless)",
+      "auth": "none",
+      "env_key": null,
+      "free": true,
+      "tools": true,
+      "label": 1
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "horde",
+      "model_id": "any",
+      "label_text": "Any available worker (slow, last resort)",
+      "auth": "horde",
+      "env_key": null,
+      "free": true,
+      "tools": false,
+      "label": 1
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "groq",
+      "model_id": "openai/gpt-oss-120b",
+      "label_text": "GPT-OSS 120B",
+      "auth": "bearer",
+      "env_key": "GROQ_API_KEY",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "groq",
+      "model_id": "qwen/qwen3.6-27b",
+      "label_text": "Qwen 3.6 27B",
+      "auth": "bearer",
+      "env_key": "GROQ_API_KEY",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "gemini",
+      "model_id": "gemini-2.5-flash-lite",
+      "label_text": "Gemini 2.5 Flash Lite",
+      "auth": "gemini",
+      "env_key": "GEMINI_API_KEY",
+      "free": true,
+      "tools": false,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "gemini",
+      "model_id": "gemini-2.5-flash",
+      "label_text": "Gemini 2.5 Flash",
+      "auth": "gemini",
+      "env_key": "GEMINI_API_KEY",
+      "free": true,
+      "tools": false,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "openrouter",
+      "model_id": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "label_text": "Nemotron 3 Ultra 550B",
+      "auth": "bearer",
+      "env_key": "OPENROUTER_API_KEY",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "openrouter",
+      "model_id": "cohere/north-mini-code:free",
+      "label_text": "North Mini Code",
+      "auth": "bearer",
+      "env_key": "OPENROUTER_API_KEY",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "nvidia",
+      "model_id": "z-ai/glm-5.2",
+      "label_text": "GLM 5.2",
+      "auth": "bearer",
+      "env_key": "NVIDIA_API_KEY",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "nvidia",
+      "model_id": "z-ai/glm-5.1",
+      "label_text": "GLM 5.1",
+      "auth": "bearer",
+      "env_key": "NVIDIA_API_KEY",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "nvidia",
+      "model_id": "poolside/laguna-xs-2.1",
+      "label_text": "Laguna XS 2.1",
+      "auth": "bearer",
+      "env_key": "NVIDIA_API_KEY",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "cerebras",
+      "model_id": "llama-3.3-70b",
+      "label_text": "Llama 3.3 70B",
+      "auth": "bearer",
+      "env_key": "CEREBRAS_API_KEY",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "cerebras",
+      "model_id": "qwen-3-32b",
+      "label_text": "Qwen 3 32B",
+      "auth": "bearer",
+      "env_key": "CEREBRAS_API_KEY",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "cerebras",
+      "model_id": "gpt-oss-120b",
+      "label_text": "GPT-OSS 120B",
+      "auth": "bearer",
+      "env_key": "CEREBRAS_API_KEY",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "sambanova",
+      "model_id": "Meta-Llama-3.3-70B-Instruct",
+      "label_text": "Llama 3.3 70B",
+      "auth": "bearer",
+      "env_key": "SAMBANOVA_API_KEY",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "sambanova",
+      "model_id": "Llama-4-Maverick-17B-128E-Instruct",
+      "label_text": "Llama 4 Maverick",
+      "auth": "bearer",
+      "env_key": "SAMBANOVA_API_KEY",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "sambanova",
+      "model_id": "DeepSeek-V3-0324",
+      "label_text": "DeepSeek V3",
+      "auth": "bearer",
+      "env_key": "SAMBANOVA_API_KEY",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "githubmodels",
+      "model_id": "openai/gpt-4o-mini",
+      "label_text": "GPT-4o Mini",
+      "auth": "bearer",
+      "env_key": "GITHUB_MODELS_TOKEN",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "githubmodels",
+      "model_id": "meta/Llama-3.3-70B-Instruct",
+      "label_text": "Llama 3.3 70B",
+      "auth": "bearer",
+      "env_key": "GITHUB_MODELS_TOKEN",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "githubmodels",
+      "model_id": "openai/gpt-4.1-mini",
+      "label_text": "GPT-4.1 Mini",
+      "auth": "bearer",
+      "env_key": "GITHUB_MODELS_TOKEN",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "mistral",
+      "model_id": "mistral-small-latest",
+      "label_text": "Mistral Small",
+      "auth": "bearer",
+      "env_key": "MISTRAL_API_KEY",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "mistral",
+      "model_id": "open-mistral-nemo",
+      "label_text": "Mistral Nemo",
+      "auth": "bearer",
+      "env_key": "MISTRAL_API_KEY",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "mistral",
+      "model_id": "codestral-latest",
+      "label_text": "Codestral",
+      "auth": "bearer",
+      "env_key": "MISTRAL_API_KEY",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "together",
+      "model_id": "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+      "label_text": "Llama 3.3 70B (free)",
+      "auth": "bearer",
+      "env_key": "TOGETHER_API_KEY",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "together",
+      "model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+      "label_text": "Llama 3.1 8B Turbo",
+      "auth": "bearer",
+      "env_key": "TOGETHER_API_KEY",
+      "free": false,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "fireworks",
+      "model_id": "accounts/fireworks/models/llama-v3p3-70b-instruct",
+      "label_text": "Llama 3.3 70B",
+      "auth": "bearer",
+      "env_key": "FIREWORKS_API_KEY",
+      "free": false,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "deepinfra",
+      "model_id": "meta-llama/Llama-3.3-70B-Instruct",
+      "label_text": "Llama 3.3 70B",
+      "auth": "bearer",
+      "env_key": "DEEPINFRA_API_KEY",
+      "free": false,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "deepinfra",
+      "model_id": "Qwen/Qwen2.5-72B-Instruct",
+      "label_text": "Qwen 2.5 72B",
+      "auth": "bearer",
+      "env_key": "DEEPINFRA_API_KEY",
+      "free": false,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "hf",
+      "model_id": "0bserverx/Qwen3.8-27B-Heretic-Abliterated-Uncensored-GGUF",
+      "label_text": "Qwen3.8 27B Heretic Abliterated Uncensored (GGUF)",
+      "auth": "hf",
+      "env_key": "HF_TOKEN",
+      "free": true,
+      "tools": false,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "hf",
+      "model_id": "AEON-7/Qwen3.8-27B-AEON-ULTIMATE-UNCENSORED-BF16",
+      "label_text": "Qwen3.8 27B AEON Ultimate Uncensored (BF16)",
+      "auth": "hf",
+      "env_key": "HF_TOKEN",
+      "free": true,
+      "tools": false,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "hf",
+      "model_id": "DavidAU/GLM-4.7-Flash-Uncensored-Heretic-NEO-CODE-Imatrix-MAX-GGUF",
+      "label_text": "GLM 4.7 Flash Uncensored Heretic NEO CODE (GGUF)",
+      "auth": "hf",
+      "env_key": "HF_TOKEN",
+      "free": true,
+      "tools": false,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "hf",
+      "model_id": "DavidAU/Llama-3.2-8X3B-MOE-Dark-Champion-Instruct-uncensored-abliterated-18.4B-GGUF",
+      "label_text": "Llama 3.2 8X3B MOE Dark Champion Uncensored (GGUF)",
+      "auth": "hf",
+      "env_key": "HF_TOKEN",
+      "free": true,
+      "tools": false,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "hf",
+      "model_id": "DavidAU/OpenAi-GPT-oss-20b-HERETIC-uncensored-NEO-Imatrix-gguf",
+      "label_text": "GPT-OSS 20B Heretic Uncensored (GGUF)",
+      "auth": "hf",
+      "env_key": "HF_TOKEN",
+      "free": true,
+      "tools": false,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "hf",
+      "model_id": "DavidAU/OpenAi-GPT-oss-20b-abliterated-uncensored-NEO-Imatrix-gguf",
+      "label_text": "GPT-OSS 20B Abliterated Uncensored (GGUF)",
+      "auth": "hf",
+      "env_key": "HF_TOKEN",
+      "free": true,
+      "tools": false,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "huggingface",
+      "model_id": "meta-llama/Llama-3.3-70B-Instruct",
+      "label_text": "Llama 3.3 70B",
+      "auth": "bearer",
+      "env_key": "HF_TOKEN",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "huggingface",
+      "model_id": "Qwen/Qwen2.5-72B-Instruct",
+      "label_text": "Qwen 2.5 72B",
+      "auth": "bearer",
+      "env_key": "HF_TOKEN",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "omniroute",
+      "model_id": "auto",
+      "label_text": "Auto (OmniRoute picks the route)",
+      "auth": "bearer",
+      "env_key": "OMNIROUTE_API_KEY",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-BRO_BASE_URL",
+      "env_keys_set": [
+        "BRO_BASE_URL"
+      ],
+      "provider": "anthropic",
+      "model_id": "claude-opus-5",
+      "label_text": "Claude (heavy tier)",
+      "auth": "anthropic",
+      "env_key": "ANTHROPIC_API_KEY",
+      "free": false,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-CEREBRAS_API_KEY",
+      "env_keys_set": [
+        "CEREBRAS_API_KEY"
+      ],
+      "provider": "bro",
+      "model_id": "bro",
+      "label_text": "Bro (uncensored gateway)",
+      "auth": "none",
+      "env_key": "BRO_BASE_URL",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
       "scenario": "only-CEREBRAS_API_KEY",
       "env_keys_set": [
         "CEREBRAS_API_KEY"
@@ -1346,7 +2045,7 @@
       "env_key": null,
       "free": true,
       "tools": true,
-      "label": 0
+      "label": 1
     },
     {
       "scenario": "only-CEREBRAS_API_KEY",
@@ -1871,6 +2570,20 @@
       "env_keys_set": [
         "COHERE_API_KEY"
       ],
+      "provider": "bro",
+      "model_id": "bro",
+      "label_text": "Bro (uncensored gateway)",
+      "auth": "none",
+      "env_key": "BRO_BASE_URL",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-COHERE_API_KEY",
+      "env_keys_set": [
+        "COHERE_API_KEY"
+      ],
       "provider": "kilo",
       "model_id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "label_text": "Nemotron 3 Nano Omni Reasoning",
@@ -1990,7 +2703,7 @@
       "env_key": null,
       "free": true,
       "tools": true,
-      "label": 0
+      "label": 1
     },
     {
       "scenario": "only-COHERE_API_KEY",
@@ -2515,6 +3228,20 @@
       "env_keys_set": [
         "DEEPINFRA_API_KEY"
       ],
+      "provider": "bro",
+      "model_id": "bro",
+      "label_text": "Bro (uncensored gateway)",
+      "auth": "none",
+      "env_key": "BRO_BASE_URL",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-DEEPINFRA_API_KEY",
+      "env_keys_set": [
+        "DEEPINFRA_API_KEY"
+      ],
       "provider": "kilo",
       "model_id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "label_text": "Nemotron 3 Nano Omni Reasoning",
@@ -2634,7 +3361,7 @@
       "env_key": null,
       "free": true,
       "tools": true,
-      "label": 0
+      "label": 1
     },
     {
       "scenario": "only-DEEPINFRA_API_KEY",
@@ -3159,6 +3886,20 @@
       "env_keys_set": [
         "FIREWORKS_API_KEY"
       ],
+      "provider": "bro",
+      "model_id": "bro",
+      "label_text": "Bro (uncensored gateway)",
+      "auth": "none",
+      "env_key": "BRO_BASE_URL",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-FIREWORKS_API_KEY",
+      "env_keys_set": [
+        "FIREWORKS_API_KEY"
+      ],
       "provider": "kilo",
       "model_id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "label_text": "Nemotron 3 Nano Omni Reasoning",
@@ -3278,7 +4019,7 @@
       "env_key": null,
       "free": true,
       "tools": true,
-      "label": 0
+      "label": 1
     },
     {
       "scenario": "only-FIREWORKS_API_KEY",
@@ -3803,6 +4544,20 @@
       "env_keys_set": [
         "GEMINI_API_KEY"
       ],
+      "provider": "bro",
+      "model_id": "bro",
+      "label_text": "Bro (uncensored gateway)",
+      "auth": "none",
+      "env_key": "BRO_BASE_URL",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-GEMINI_API_KEY",
+      "env_keys_set": [
+        "GEMINI_API_KEY"
+      ],
       "provider": "kilo",
       "model_id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "label_text": "Nemotron 3 Nano Omni Reasoning",
@@ -3922,7 +4677,7 @@
       "env_key": null,
       "free": true,
       "tools": true,
-      "label": 0
+      "label": 1
     },
     {
       "scenario": "only-GEMINI_API_KEY",
@@ -4447,6 +5202,20 @@
       "env_keys_set": [
         "GITHUB_MODELS_TOKEN"
       ],
+      "provider": "bro",
+      "model_id": "bro",
+      "label_text": "Bro (uncensored gateway)",
+      "auth": "none",
+      "env_key": "BRO_BASE_URL",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-GITHUB_MODELS_TOKEN",
+      "env_keys_set": [
+        "GITHUB_MODELS_TOKEN"
+      ],
       "provider": "kilo",
       "model_id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "label_text": "Nemotron 3 Nano Omni Reasoning",
@@ -4566,7 +5335,7 @@
       "env_key": null,
       "free": true,
       "tools": true,
-      "label": 0
+      "label": 1
     },
     {
       "scenario": "only-GITHUB_MODELS_TOKEN",
@@ -5091,6 +5860,20 @@
       "env_keys_set": [
         "GRATISFY_API_KEY"
       ],
+      "provider": "bro",
+      "model_id": "bro",
+      "label_text": "Bro (uncensored gateway)",
+      "auth": "none",
+      "env_key": "BRO_BASE_URL",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-GRATISFY_API_KEY",
+      "env_keys_set": [
+        "GRATISFY_API_KEY"
+      ],
       "provider": "kilo",
       "model_id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "label_text": "Nemotron 3 Nano Omni Reasoning",
@@ -5210,7 +5993,7 @@
       "env_key": null,
       "free": true,
       "tools": true,
-      "label": 0
+      "label": 1
     },
     {
       "scenario": "only-GRATISFY_API_KEY",
@@ -5735,6 +6518,20 @@
       "env_keys_set": [
         "GROQ_API_KEY"
       ],
+      "provider": "bro",
+      "model_id": "bro",
+      "label_text": "Bro (uncensored gateway)",
+      "auth": "none",
+      "env_key": "BRO_BASE_URL",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-GROQ_API_KEY",
+      "env_keys_set": [
+        "GROQ_API_KEY"
+      ],
       "provider": "kilo",
       "model_id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "label_text": "Nemotron 3 Nano Omni Reasoning",
@@ -5854,7 +6651,7 @@
       "env_key": null,
       "free": true,
       "tools": true,
-      "label": 0
+      "label": 1
     },
     {
       "scenario": "only-GROQ_API_KEY",
@@ -6379,6 +7176,20 @@
       "env_keys_set": [
         "HF_TOKEN"
       ],
+      "provider": "bro",
+      "model_id": "bro",
+      "label_text": "Bro (uncensored gateway)",
+      "auth": "none",
+      "env_key": "BRO_BASE_URL",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-HF_TOKEN",
+      "env_keys_set": [
+        "HF_TOKEN"
+      ],
       "provider": "kilo",
       "model_id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "label_text": "Nemotron 3 Nano Omni Reasoning",
@@ -6498,7 +7309,7 @@
       "env_key": null,
       "free": true,
       "tools": true,
-      "label": 0
+      "label": 1
     },
     {
       "scenario": "only-HF_TOKEN",
@@ -7023,6 +7834,20 @@
       "env_keys_set": [
         "MISTRAL_API_KEY"
       ],
+      "provider": "bro",
+      "model_id": "bro",
+      "label_text": "Bro (uncensored gateway)",
+      "auth": "none",
+      "env_key": "BRO_BASE_URL",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-MISTRAL_API_KEY",
+      "env_keys_set": [
+        "MISTRAL_API_KEY"
+      ],
       "provider": "kilo",
       "model_id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "label_text": "Nemotron 3 Nano Omni Reasoning",
@@ -7142,7 +7967,7 @@
       "env_key": null,
       "free": true,
       "tools": true,
-      "label": 0
+      "label": 1
     },
     {
       "scenario": "only-MISTRAL_API_KEY",
@@ -7667,6 +8492,20 @@
       "env_keys_set": [
         "NVIDIA_API_KEY"
       ],
+      "provider": "bro",
+      "model_id": "bro",
+      "label_text": "Bro (uncensored gateway)",
+      "auth": "none",
+      "env_key": "BRO_BASE_URL",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-NVIDIA_API_KEY",
+      "env_keys_set": [
+        "NVIDIA_API_KEY"
+      ],
       "provider": "kilo",
       "model_id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "label_text": "Nemotron 3 Nano Omni Reasoning",
@@ -7786,7 +8625,7 @@
       "env_key": null,
       "free": true,
       "tools": true,
-      "label": 0
+      "label": 1
     },
     {
       "scenario": "only-NVIDIA_API_KEY",
@@ -8311,6 +9150,20 @@
       "env_keys_set": [
         "OMNIROUTE_API_KEY"
       ],
+      "provider": "bro",
+      "model_id": "bro",
+      "label_text": "Bro (uncensored gateway)",
+      "auth": "none",
+      "env_key": "BRO_BASE_URL",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-OMNIROUTE_API_KEY",
+      "env_keys_set": [
+        "OMNIROUTE_API_KEY"
+      ],
       "provider": "kilo",
       "model_id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "label_text": "Nemotron 3 Nano Omni Reasoning",
@@ -8430,7 +9283,7 @@
       "env_key": null,
       "free": true,
       "tools": true,
-      "label": 0
+      "label": 1
     },
     {
       "scenario": "only-OMNIROUTE_API_KEY",
@@ -8955,6 +9808,20 @@
       "env_keys_set": [
         "OPENROUTER_API_KEY"
       ],
+      "provider": "bro",
+      "model_id": "bro",
+      "label_text": "Bro (uncensored gateway)",
+      "auth": "none",
+      "env_key": "BRO_BASE_URL",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-OPENROUTER_API_KEY",
+      "env_keys_set": [
+        "OPENROUTER_API_KEY"
+      ],
       "provider": "kilo",
       "model_id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "label_text": "Nemotron 3 Nano Omni Reasoning",
@@ -9074,7 +9941,7 @@
       "env_key": null,
       "free": true,
       "tools": true,
-      "label": 0
+      "label": 1
     },
     {
       "scenario": "only-OPENROUTER_API_KEY",
@@ -9599,6 +10466,20 @@
       "env_keys_set": [
         "SAMBANOVA_API_KEY"
       ],
+      "provider": "bro",
+      "model_id": "bro",
+      "label_text": "Bro (uncensored gateway)",
+      "auth": "none",
+      "env_key": "BRO_BASE_URL",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-SAMBANOVA_API_KEY",
+      "env_keys_set": [
+        "SAMBANOVA_API_KEY"
+      ],
       "provider": "kilo",
       "model_id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "label_text": "Nemotron 3 Nano Omni Reasoning",
@@ -9718,7 +10599,7 @@
       "env_key": null,
       "free": true,
       "tools": true,
-      "label": 0
+      "label": 1
     },
     {
       "scenario": "only-SAMBANOVA_API_KEY",
@@ -10243,6 +11124,20 @@
       "env_keys_set": [
         "TOGETHER_API_KEY"
       ],
+      "provider": "bro",
+      "model_id": "bro",
+      "label_text": "Bro (uncensored gateway)",
+      "auth": "none",
+      "env_key": "BRO_BASE_URL",
+      "free": true,
+      "tools": true,
+      "label": 0
+    },
+    {
+      "scenario": "only-TOGETHER_API_KEY",
+      "env_keys_set": [
+        "TOGETHER_API_KEY"
+      ],
       "provider": "kilo",
       "model_id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "label_text": "Nemotron 3 Nano Omni Reasoning",
@@ -10362,7 +11257,7 @@
       "env_key": null,
       "free": true,
       "tools": true,
-      "label": 0
+      "label": 1
     },
     {
       "scenario": "only-TOGETHER_API_KEY",
@@ -10886,6 +11781,37 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
+        "CEREBRAS_API_KEY",
+        "COHERE_API_KEY",
+        "DEEPINFRA_API_KEY",
+        "FIREWORKS_API_KEY",
+        "GEMINI_API_KEY",
+        "GITHUB_MODELS_TOKEN",
+        "GRATISFY_API_KEY",
+        "GROQ_API_KEY",
+        "HF_TOKEN",
+        "MISTRAL_API_KEY",
+        "NVIDIA_API_KEY",
+        "OMNIROUTE_API_KEY",
+        "OPENROUTER_API_KEY",
+        "SAMBANOVA_API_KEY",
+        "TOGETHER_API_KEY"
+      ],
+      "provider": "bro",
+      "model_id": "bro",
+      "label_text": "Bro (uncensored gateway)",
+      "auth": "none",
+      "env_key": "BRO_BASE_URL",
+      "free": true,
+      "tools": true,
+      "label": 1
+    },
+    {
+      "scenario": "all-keys",
+      "env_keys_set": [
+        "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -10915,6 +11841,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -10944,6 +11871,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -10973,6 +11901,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11002,6 +11931,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11031,6 +11961,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11060,6 +11991,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11089,6 +12021,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11118,6 +12051,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11141,12 +12075,13 @@
       "env_key": null,
       "free": true,
       "tools": true,
-      "label": 0
+      "label": 1
     },
     {
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11176,6 +12111,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11205,6 +12141,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11234,6 +12171,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11263,6 +12201,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11292,6 +12231,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11321,6 +12261,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11350,6 +12291,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11379,6 +12321,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11408,6 +12351,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11437,6 +12381,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11466,6 +12411,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11495,6 +12441,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11524,6 +12471,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11553,6 +12501,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11582,6 +12531,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11611,6 +12561,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11640,6 +12591,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11669,6 +12621,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11698,6 +12651,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11727,6 +12681,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11756,6 +12711,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11785,6 +12741,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11814,6 +12771,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11843,6 +12801,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11872,6 +12831,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11901,6 +12861,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11930,6 +12891,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11959,6 +12921,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -11988,6 +12951,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -12017,6 +12981,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -12046,6 +13011,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -12075,6 +13041,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -12104,6 +13071,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -12133,6 +13101,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -12162,6 +13131,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
@@ -12191,6 +13161,7 @@
       "scenario": "all-keys",
       "env_keys_set": [
         "ANTHROPIC_API_KEY",
+        "BRO_BASE_URL",
         "CEREBRAS_API_KEY",
         "COHERE_API_KEY",
         "DEEPINFRA_API_KEY",
