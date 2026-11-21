@@ -12,6 +12,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import process from 'node:process';
+import { pathToFileURL } from 'node:url';
 
 import { runTool, run as runCommand } from '../lib/tools.mjs';
 import { compactInPlace, needsCompaction, contextChars, SUMMARY_SYSTEM } from '../lib/context.mjs';
@@ -239,7 +240,7 @@ async function chooseModel(models, current, rl) {
  * (Vercel env); only this phone runs the tools. Returns the gateway's reply
  * in the same shape local complete() returns: { text, toolCalls, assistantMessage }.
  */
-async function completeViaGateway(gateway, model, messages, gatewayToken) {
+export async function completeViaGateway(gateway, model, messages, gatewayToken) {
   const res = await fetch(gateway.replace(/\/$/, '') + '/api/chat', {
     method: 'POST',
     headers: {
@@ -284,7 +285,7 @@ async function completeViaGateway(gateway, model, messages, gatewayToken) {
  * then keyed, then chat-only, cooling-down providers last). Failed attempts
  * print one dim line each so a flapping provider is visible, not silent.
  */
-async function runFailoverTurn(model, models, messages, tracker, completeOne, sessionBadModels, opts = {}) {
+export async function runFailoverTurn(model, models, messages, tracker, completeOne, sessionBadModels, opts = {}) {
   const rest = models.filter(
     (m) => !(m.id === model.id && m.provider === model.provider && m.source === model.source)
   );
@@ -1155,7 +1156,12 @@ async function main() {
   rl.close();
 }
 
-main().catch((err) => {
-  console.error(C.red(err.stack || err.message));
-  process.exit(1);
-});
+// Only run the CLI when executed directly: importing this file (e.g. from
+// tests/cli-turn.test.mjs) must not start the interactive loop.
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) {
+  main().catch((err) => {
+    console.error(C.red(err.stack || err.message));
+    process.exit(1);
+  });
+}

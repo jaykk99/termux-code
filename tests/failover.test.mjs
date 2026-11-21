@@ -8,6 +8,7 @@ import {
   FailureTracker,
   buildFailoverPlan,
   completeWithFailover,
+  callWithTransientRetry,
   FailoverError,
   gatewayFallbackReason,
   isTransientError,
@@ -745,5 +746,83 @@ describe('quiet failure reporting', async () => {
     const long = oneLine('x'.repeat(300), 40);
     assert.equal(long.length, 40);
     assert.ok(long.endsWith('…'));
+  });
+});
+
+describe('callWithTransientRetry()', () => {
+  const model = M('a', 'kilo', 'none');
+  const messages = [];
+
+  it('returns the first answer without retrying', async () => {
+    let calls = 0;
+    const out = await callWithTransientRetry(model, messages, async () => {
+      calls++;
+      return 'ok';
+    });
+    assert.equal(out, 'ok');
+    assert.equal(calls, 1);
+  });
+
+  it('retries once on a transient 429, honouring a short retry-after', async () => {
+    let calls = 0;
+    const started = Date.now();
+    const out = await callWithTransientRetry(model, messages, async () => {
+      calls++;
+      if (calls === 1) throw new Error('429 Too Many Requests (retry-after: 1)');
+      return 'second try';
+    });
+    assert.equal(out, 'second try');
+    assert.equal(calls, 2);
+    assert.ok(Date.now() - started >= 900, 'should have waited about a second');
+  });
+
+  it('throws the last error when both attempts are transient', async () => {
+    let calls = 0;
+    await assert.rejects(
+      () => callWithTransientRetry(model, messages, async () => {
+        calls++;
+        throw new Error('503 Service Unavailable (retry-after: 1)');
+      }),
+      /503 Service Unavailable/,
+    );
+    assert.equal(calls, 2);
+  });
+
+  it('does not retry a non-transient error', async () => {
+    let calls = 0;
+    await assert.rejects(
+      () => callWithTransientRetry(model, messages, async () => {
+        calls++;
+        throw new Error('400 bad request: max_tokens too large');
+      }),
+      /400 bad request/,
+    );
+    assert.equal(calls, 1);
+  });
+
+  it('never retries a BAD_MODEL rejection — the id is dead, not the provider', async () => {
+    let calls = 0;
+    await assert.rejects(
+      () => callWithTransientRetry(model, messages, async () => {
+        calls++;
+        throw new Error('BAD_MODEL: Unknown model. Pick one from /api/models.');
+      }),
+      /BAD_MODEL/,
+    );
+    assert.equal(calls, 1);
+  });
+
+  it('rethrows a terminal error at once without retrying', async () => {
+    let calls = 0;
+    const err = new Error('Gateway rejected the token (NO_KEY).');
+    err.terminal = true;
+    await assert.rejects(
+      () => callWithTransientRetry(model, messages, async () => {
+        calls++;
+        throw err;
+      }),
+      (e) => e.terminal === true,
+    );
+    assert.equal(calls, 1);
   });
 });

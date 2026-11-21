@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanMessages, trimForGateway } from '../lib/history.mjs';
+import { cleanMessages, cleanToolCalls, trimForGateway } from '../lib/history.mjs';
 
 test('cleanMessages drops null, undefined, and non-object entries', () => {
   const out = cleanMessages([
@@ -99,4 +99,38 @@ test('trimForGateway keeps tool_calls through the trim', () => {
 test('cleanMessages returns [] for non-arrays', () => {
   assert.deepEqual(cleanMessages(null), []);
   assert.deepEqual(cleanMessages('nope'), []);
+});
+
+test('cleanToolCalls keeps well-formed calls and normalises their shape', () => {
+  const out = cleanToolCalls([
+    { id: 'c1', type: 'function', function: { name: 'read_file', arguments: '{"path":"a"}' }, extra: 'dropped' },
+    { id: 'c2', type: 'function', function: { name: 'bash', arguments: '{}' } },
+  ]);
+  assert.deepEqual(out, [
+    { id: 'c1', type: 'function', function: { name: 'read_file', arguments: '{"path":"a"}' } },
+    { id: 'c2', type: 'function', function: { name: 'bash', arguments: '{}' } },
+  ]);
+});
+
+test('cleanToolCalls drops malformed calls instead of passing an orphan upstream', () => {
+  const out = cleanToolCalls([
+    null,
+    'junk',
+    { id: '', type: 'function', function: { name: 'read_file', arguments: '{}' } },
+    { type: 'function', function: { name: 'read_file', arguments: '{}' } },
+    { id: 'c3', type: 'function' },
+    { id: 'c4', type: 'function', function: { name: '', arguments: '{}' } },
+    { id: 'c5', type: 'function', function: { name: 'read_file', arguments: { path: 'a' } } },
+    { id: 'c6', type: 'function', function: { name: 'read_file', arguments: '{}' } },
+  ]);
+  assert.deepEqual(out, [
+    { id: 'c6', type: 'function', function: { name: 'read_file', arguments: '{}' } },
+  ]);
+});
+
+test('cleanToolCalls returns undefined for non-arrays and when nothing survives', () => {
+  assert.equal(cleanToolCalls(null), undefined);
+  assert.equal(cleanToolCalls('nope'), undefined);
+  assert.equal(cleanToolCalls([]), undefined);
+  assert.equal(cleanToolCalls([{ id: 'x' }]), undefined);
 });

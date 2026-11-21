@@ -162,4 +162,37 @@ describe('callHorde() via complete()', () => {
       /Horde: job faulted in the queue/,
     );
   });
+
+  it('resubmits once when a job finishes with an empty generation', async () => {
+    const submits = [];
+    responder = async (url, options) => {
+      if (url.includes('/status/models')) return jsonRes([]);
+      if (url.endsWith('/async')) {
+        submits.push(JSON.parse(options.body));
+        return jsonRes({ id: submits.length === 1 ? 'job-empty' : 'job-good' });
+      }
+      if (url.includes('/status/job-empty')) return jsonRes({ done: true, generations: [{ text: '   ' }] });
+      return jsonRes({ done: true, generations: [{ text: 'second try answered' }] });
+    };
+    const reply = await complete(hordeModel, [{ role: 'user', content: 'say hi' }], {});
+    assert.equal(submits.length, 2);
+    assert.equal(reply.text, 'second try answered');
+  });
+
+  it('fails after the resubmit also finishes empty instead of looping', async () => {
+    let submits = 0;
+    responder = async (url) => {
+      if (url.includes('/status/models')) return jsonRes([]);
+      if (url.endsWith('/async')) {
+        submits += 1;
+        return jsonRes({ id: `job-empty-${submits}` });
+      }
+      return jsonRes({ done: true, generations: [{ text: '' }] });
+    };
+    await assert.rejects(
+      () => complete(hordeModel, [{ role: 'user', content: 'say hi' }], {}),
+      /Horde: job finished with an empty generation/,
+    );
+    assert.equal(submits, 2);
+  });
 });
