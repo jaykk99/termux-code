@@ -1,7 +1,7 @@
 /**
  * Tests for the Horde uncensored route — pickHordeUncensoredModels and the
- * callHorde submit body (uncensored models requested when online, any
- * worker when the status fetch fails).
+ * callHorde submit body (uncensored workers only; the route refuses an
+ * any-worker job rather than let an aligned worker answer).
  * Run: node --test tests/
  */
 import { describe, it, before, after } from 'node:test';
@@ -44,7 +44,7 @@ describe('pickHordeUncensoredModels()', () => {
   it('trims the padding the live status feed puts on worker names', () => {
     // Observed live: "name":" koboldcpp/gemma-4-31B-it-heretic". Sent back
     // with the space, a models-restricted submit names a worker Horde does
-    // not know and is rejected, dropping the route to any-worker.
+    // not know and is rejected — and there is no any-worker rung to drop to.
     assert.deepEqual(
       pickHordeUncensoredModels([{ name: ' koboldcpp/Gemma-4-E4B-it-Uncensored', count: 1, eta: 0 }]),
       ['koboldcpp/Gemma-4-E4B-it-Uncensored']
@@ -84,18 +84,21 @@ describe('callHorde() via complete()', () => {
     assert.equal(reply.text, 'hello uncensored');
   });
 
-  it('falls back to any worker when the status fetch fails', async () => {
-    responder = async (url, options) => {
+  it('refuses an any-worker job when the status fetch fails', async () => {
+    let submitted = false;
+    responder = async (url) => {
       if (url.includes('/status/models')) throw new Error('status down');
       if (url.endsWith('/async')) {
-        seenSubmit = JSON.parse(options.body);
+        submitted = true;
         return jsonRes({ id: 'job2' });
       }
       return jsonRes({ done: true, generations: [{ text: 'hello any' }] });
     };
-    const reply = await complete(hordeModel, [{ role: 'user', content: 'say hi' }], {});
-    assert.equal(seenSubmit.models, undefined);
-    assert.equal(reply.text, 'hello any');
+    await assert.rejects(
+      () => complete(hordeModel, [{ role: 'user', content: 'say hi' }], {}),
+      /no uncensored workers online/,
+    );
+    assert.equal(submitted, false);
   });
 
   const errRes = (status, body) => ({
@@ -105,30 +108,29 @@ describe('callHorde() via complete()', () => {
     json: async () => (typeof body === 'string' ? {} : body),
   });
 
-  it('retries unrestricted when the models-restricted submit is gated (403 KudosUpfront)', async () => {
+  it('surfaces a gated restricted submit instead of retrying unrestricted (403 KudosUpfront)', async () => {
     const submits = [];
     responder = async (url, options) => {
       if (url.includes('/status/models')) {
         return jsonRes([{ name: 'koboldcpp/L3-8B-Stheno-v3.2-GGUF', count: 1, eta: 0 }]);
       }
       if (url.endsWith('/async')) {
-        const body = JSON.parse(options.body);
-        submits.push(body);
-        if (body.models) return errRes(403, { message: 'This request requires upfront kudos', rc: 'KudosUpfront' });
-        return jsonRes({ id: 'job3' });
+        submits.push(JSON.parse(options.body));
+        return errRes(403, { message: 'This request requires upfront kudos', rc: 'KudosUpfront' });
       }
-      return jsonRes({ done: true, generations: [{ text: 'hello unrestricted' }] });
+      throw new Error('poll must not happen after a failed submit');
     };
-    const reply = await complete(hordeModel, [{ role: 'user', content: 'say hi' }], {});
-    assert.equal(submits.length, 2);
+    await assert.rejects(
+      () => complete(hordeModel, [{ role: 'user', content: 'say hi' }], {}),
+      /Horde 403 \(KudosUpfront\): This request requires upfront kudos/,
+    );
+    assert.equal(submits.length, 1);
     assert.deepEqual(submits[0].models, ['koboldcpp/L3-8B-Stheno-v3.2-GGUF']);
-    assert.equal(submits[1].models, undefined);
-    assert.equal(reply.text, 'hello unrestricted');
   });
 
   it('surfaces Horde\'s own rc and message when every submit rung fails', async () => {
     responder = async (url) => {
-      if (url.includes('/status/models')) return jsonRes([]);
+      if (url.includes('/status/models')) return jsonRes([{ name: 'koboldcpp/L3-8B-Stheno-v3.2-GGUF', count: 1, eta: 0 }]);
       if (url.endsWith('/async')) return errRes(403, { message: 'This request requires upfront kudos', rc: 'KudosUpfront' });
       throw new Error('poll must not happen after a failed submit');
     };
@@ -146,7 +148,7 @@ describe('callHorde() via complete()', () => {
   it('retries as anonymous when a configured API key is rejected', async () => {
     const submitKeys = [];
     responder = async (url, options) => {
-      if (url.includes('/status/models')) return jsonRes([]);
+      if (url.includes('/status/models')) return jsonRes([{ name: 'koboldcpp/L3-8B-Stheno-v3.2-GGUF', count: 1, eta: 0 }]);
       if (url.endsWith('/async')) {
         submitKeys.push(options.headers.apikey);
         if (options.headers.apikey !== '0000000000') {
@@ -163,7 +165,7 @@ describe('callHorde() via complete()', () => {
 
   it('fails fast on a faulted job instead of polling until the deadline', async () => {
     responder = async (url) => {
-      if (url.includes('/status/models')) return jsonRes([]);
+      if (url.includes('/status/models')) return jsonRes([{ name: 'koboldcpp/L3-8B-Stheno-v3.2-GGUF', count: 1, eta: 0 }]);
       if (url.endsWith('/async')) return jsonRes({ id: 'job5' });
       return jsonRes({ done: false, faulted: true, generations: [] });
     };
@@ -176,7 +178,7 @@ describe('callHorde() via complete()', () => {
   it('resubmits once when a job finishes with an empty generation', async () => {
     const submits = [];
     responder = async (url, options) => {
-      if (url.includes('/status/models')) return jsonRes([]);
+      if (url.includes('/status/models')) return jsonRes([{ name: 'koboldcpp/L3-8B-Stheno-v3.2-GGUF', count: 1, eta: 0 }]);
       if (url.endsWith('/async')) {
         submits.push(JSON.parse(options.body));
         return jsonRes({ id: submits.length === 1 ? 'job-empty' : 'job-good' });
@@ -192,7 +194,7 @@ describe('callHorde() via complete()', () => {
   it('fails after the resubmit also finishes empty instead of looping', async () => {
     let submits = 0;
     responder = async (url) => {
-      if (url.includes('/status/models')) return jsonRes([]);
+      if (url.includes('/status/models')) return jsonRes([{ name: 'koboldcpp/L3-8B-Stheno-v3.2-GGUF', count: 1, eta: 0 }]);
       if (url.endsWith('/async')) {
         submits += 1;
         return jsonRes({ id: `job-empty-${submits}` });

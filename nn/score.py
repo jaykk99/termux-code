@@ -35,7 +35,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description="Score model availability with the NN.")
     ap.add_argument("--scenario", default=None,
-                    help="one of the 18 scenarios in nn/dataset.json")
+                    help="one of the scenarios in nn/dataset.json")
     ap.add_argument("--env-keys", default=None,
                     help="comma-separated env keys set (custom scenario; "
                          "no rule label available for these)")

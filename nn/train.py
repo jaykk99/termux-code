@@ -9,9 +9,9 @@ viewer-data.json into the out dir (default: this package dir) and
 refreshes the embedded metrics block in viewer.html.
 
 Honest limits, printed with the metrics and baked into the viewer:
-- the positive class is 3.6% (30 of 828 rows): only 7 of 46 registry
-  models are ever listed, because the uncensored-only filter drops
-  the rest. The majority baseline is 96.4%, so accuracy alone means
+- the positive class is 25.2% (59 of 234 rows): horde/any is listed
+  under every env, every other registered model once its own key is
+  set. The majority baseline is 74.5%, so accuracy alone means
   nothing: judge by listed-class recall and ROC AUC.
 - the training set is oversampled (positives duplicated to 20%) so
   the network sees the minority class at all; the test set is never

@@ -10,12 +10,12 @@ import assert from 'node:assert/strict';
 
 // HF_MODEL is read when lib/models.mjs is first evaluated, so set it
 // before importing — the same way a deployment sets it in the environment.
-process.env.HF_MODEL = 'someone/Swapped-Model-GGUF';
+process.env.HF_MODEL = 'someone/Swapped-Model-Uncensored-GGUF';
 const { PROVIDERS, directModels, resolveModel, capabilities } = await import('../lib/models.mjs');
 const { complete } = await import('../lib/agent.mjs');
 
 const POOL_ORDER = [
-  'someone/Swapped-Model-GGUF', // HF_MODEL lands first
+  'someone/Swapped-Model-Uncensored-GGUF', // HF_MODEL lands first
   'AEON-7/Qwen3.8-27B-AEON-ULTIMATE-UNCENSORED-BF16',
   'DavidAU/GLM-4.7-Flash-Uncensored-Heretic-NEO-CODE-Imatrix-MAX-GGUF',
   'DavidAU/Llama-3.2-8X3B-MOE-Dark-Champion-Instruct-uncensored-abliterated-18.4B-GGUF',
@@ -50,6 +50,21 @@ describe('hf provider registration', () => {
     delete process.env.HF_MODEL;
     try {
       const fresh = await import('../lib/models.mjs?hf-default-check');
+      const first = fresh.directModels({ HF_TOKEN: 'x' }).find((m) => m.provider === 'hf');
+      assert.equal(first.id, '0bserverx/Qwen3.8-27B-Heretic-Abliterated-Uncensored-GGUF');
+    } finally {
+      if (saved !== undefined) process.env.HF_MODEL = saved;
+    }
+  });
+
+  it('ignores an HF_MODEL that names an aligned build', async () => {
+    // 'hf' is a trusted pool provider, so the override is the one place a
+    // marker-less id could walk past the policy. An aligned override keeps
+    // the pool's first entry instead of registering an aligned model.
+    const saved = process.env.HF_MODEL;
+    process.env.HF_MODEL = 'meta-llama/Llama-3.3-70B-Instruct';
+    try {
+      const fresh = await import('../lib/models.mjs?hf-aligned-override');
       const first = fresh.directModels({ HF_TOKEN: 'x' }).find((m) => m.provider === 'hf');
       assert.equal(first.id, '0bserverx/Qwen3.8-27B-Heretic-Abliterated-Uncensored-GGUF');
     } finally {
@@ -101,7 +116,7 @@ describe('hf completion wire shape (error-inbox adapter parity)', () => {
     responder = async (_url, options) => jsonRes([{ generated_text: JSON.parse(options.body).inputs + 'hello there' }]);
     const model = directModels({ HF_TOKEN: 'x' }).find((m) => m.provider === 'hf');
     const reply = await complete(model, [{ role: 'user', content: 'hi' }], {});
-    assert.equal(seen.url, 'https://api-inference.huggingface.co/models/someone/Swapped-Model-GGUF');
+    assert.equal(seen.url, 'https://api-inference.huggingface.co/models/someone/Swapped-Model-Uncensored-GGUF');
     const body = JSON.parse(seen.options.body);
     // Full transcript plus the text tool protocol, ending on the
     // assistant cue, so a text-only model can still drive tools.

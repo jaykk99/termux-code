@@ -161,15 +161,14 @@ describe('completeWithFailover()', () => {
     assert.equal(attempts[1].ok, true);
   });
 
-  it('keeps the pinned Horde model first with Pollinations GPT-OSS as the fast fallback', async () => {
-    // Real shapes, no marker in either label: Horde passes via the
-    // allowlist ('horde/any'), Pollinations via its own allowlist entry
-    // ('pollinations/openai'). The pinned primary is tried first; when
-    // it fails, the chain walks to Pollinations instead of dying.
+  it('keeps the pinned Horde model first with the keyless Kilo route as the fallback', async () => {
+    // Real shapes: Horde passes via the allowlist ('horde/any'), Kilo's
+    // Dolphin via the marker in its id. The pinned primary is tried first;
+    // when it fails, the chain walks to Kilo instead of dying.
     const horde = { id: 'any', provider: 'horde', auth: 'horde', free: true, source: 'direct', label: 'Any available worker (slow, last resort)' };
-    const pollinations = { id: 'openai', provider: 'pollinations', auth: 'none', free: true, source: 'direct', label: 'Pollinations OpenAI (keyless)' };
+    const kilo = { id: 'lab/dolphin-3:free', provider: 'kilo', auth: 'none', free: true, source: 'direct', label: 'Dolphin 3' };
     let calls = 0;
-    const { model, reply, attempts } = await completeWithFailover([horde, pollinations], [], async (m) => {
+    const { model, reply, attempts } = await completeWithFailover([horde, kilo], [], async (m) => {
       calls++;
       if (m.provider === 'horde') throw new Error('Horde: job finished with an empty generation.');
       return replyFor(m);
@@ -177,8 +176,8 @@ describe('completeWithFailover()', () => {
     assert.equal(calls, 2);
     assert.equal(attempts[0].provider, 'horde');
     assert.equal(attempts[0].ok, false);
-    assert.equal(model.provider, 'pollinations');
-    assert.equal(reply.text, 'from openai');
+    assert.equal(model.provider, 'kilo');
+    assert.match(reply.text, /^from /);
     assert.equal(attempts[1].ok, true);
   });
 
@@ -592,17 +591,17 @@ describe('pinFirst', () => {
     // cooldown, a parked Horde spent its two-minute queue poll on every turn
     // before the chain could reach a keyless route that answered.
     const horde = { id: 'any', provider: 'horde', auth: 'horde', free: true, source: 'direct', label: 'Any available worker (slow, last resort)' };
-    const pollinations = { id: 'openai', provider: 'pollinations', auth: 'none', free: true, source: 'direct', label: 'Pollinations OpenAI (keyless)' };
+    const kilo = { id: 'lab/dolphin-3:free', provider: 'kilo', auth: 'none', free: true, source: 'direct', label: 'Dolphin 3' };
     const tr = new FailureTracker();
     for (let i = 0; i < FAILURES_TO_TRIP; i++) tr.recordFailure('horde');
     assert.equal(tr.isCoolingDown('horde'), true);
     const calls = [];
-    const { model } = await completeWithFailover([horde, pollinations], [], async (m) => {
+    const { model } = await completeWithFailover([horde, kilo], [], async (m) => {
       calls.push(`${m.provider}/${m.id}`);
       return { text: 'ok', toolCalls: [] };
     }, tr, { pinFirst: horde });
-    assert.deepEqual(calls, ['pollinations/openai']);
-    assert.equal(model.provider, 'pollinations');
+    assert.deepEqual(calls, ['kilo/lab/dolphin-3:free']);
+    assert.equal(model.provider, 'kilo');
   });
 
   it('ignores an unknown pinFirst', async () => {
@@ -618,11 +617,11 @@ describe('pinFirst', () => {
 
 describe('buildFailoverPlan() — one attempt per route', () => {
   it('collapses the same provider/id arriving from several sources', () => {
-    const direct = { ...M('openai', 'pollinations', 'none', true), source: 'direct' };
-    const inbox = { ...M('openai', 'pollinations', 'none', true), source: 'error-inbox' };
+    const direct = { ...M('lab/dolphin-3:free', 'kilo', 'none', true), source: 'direct' };
+    const inbox = { ...M('lab/dolphin-3:free', 'kilo', 'none', true), source: 'error-inbox' };
     const plan = buildFailoverPlan([direct, inbox]);
     assert.equal(plan.length, 1);
-    assert.equal(plan[0].provider, 'pollinations');
+    assert.equal(plan[0].provider, 'kilo');
   });
 
   it('does not count a duplicated dead route several times against its provider', async () => {

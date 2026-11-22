@@ -45,7 +45,7 @@ async function captureLog(fn) {
 }
 
 describe('completeViaGateway()', () => {
-  const model = M('openai', 'pollinations');
+  const model = M('any', 'horde');
   const messages = [{ role: 'user', content: 'hi' }];
 
   it('returns the gateway reply as-is and sends the token', async () => {

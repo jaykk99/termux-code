@@ -204,7 +204,7 @@ describe('POST /api/auth/logout', () => {
 });
 
 describe('POST /api/chat (gate + validation only)', () => {
-  const model = { id: 'openai', provider: 'pollinations', source: 'direct' };
+  const model = { id: 'any', provider: 'horde', source: 'direct' };
 
   function chatReq(body, headers = {}) {
     return new Request(`${BASE}/api/chat`, {

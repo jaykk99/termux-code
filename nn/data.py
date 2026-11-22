@@ -2,15 +2,15 @@
 
 Source: nn/dataset.json, built by nn/build_dataset.mjs, which runs the
 repo's own lib/models.mjs directModels(env) on the real PROVIDERS
-registry. 46 models x 18 env scenarios (no keys; each of the 16
-distinct envKeys set alone; all keys set) = 828 rows. Label 1 = the
-model is listed by directModels() under that env, 0 = it is not.
+registry. Every registered model x every env scenario (no keys; each
+distinct envKey of a provider that registers a model, set alone; all
+keys set). Label 1 = the model is listed by directModels() under that
+env, 0 = it is not.
 
-The uncensored-only filter (lib/uncensored.mjs) is the reason the
-positive class is small: only 7 of the 46 registry models are ever
-listed (horde/any, always; the 6 hf models, only when HF_TOKEN is
-set). That is the repo's real behavior, not a data quirk, and the
-training report says so.
+Because the registry is uncensored-only now (lib/uncensored.mjs), the
+labels say something simple: horde/any is listed under every env, and
+every other model only once its own key is set. That is the repo's
+real behavior, not a data quirk, and the training report says so.
 """
 from __future__ import annotations
 

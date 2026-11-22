@@ -23,16 +23,17 @@ import { isUncensoredModel } from '../lib/uncensored.mjs';
 const EMPTY_ENV = {};
 
 describe('directModels()', () => {
-  it('enables the keyless uncensored routes (AI Horde + Pollinations GPT-OSS) with no env at all', () => {
+  it('enables AI Horde with no env at all, and no aligned provider at all', () => {
     const models = directModels(EMPTY_ENV);
     const providers = new Set(models.map((m) => m.provider));
     assert.ok(providers.has('horde'));
-    assert.ok(providers.has('pollinations'));
-    // Kilo / LLM7 are keyless too, but their current catalogues carry no
+    // Kilo / LLM7 are keyless too, but their catalogues carry no keyless
     // uncensored-lineage model, so they contribute nothing — keyless was
-    // never the criterion, uncensored is.
+    // never the criterion, uncensored is. Pollinations used to be here and
+    // was removed 2026-11-22: its only route served aligned GPT-OSS 20B.
     assert.ok(!providers.has('kilo'));
     assert.ok(!providers.has('llm7'));
+    assert.ok(!providers.has('pollinations'));
   });
 
   it('hands out uncensored-lineage models only, whatever keys are set', () => {
@@ -53,9 +54,11 @@ describe('directModels()', () => {
     assert.ok(!before.includes('hf'));
     const after = directModels({ ...EMPTY_ENV, HF_TOKEN: 'x' }).map((m) => m.provider);
     assert.ok(after.includes('hf'));
-    // A key does not resurrect a provider whose models are all aligned.
-    const groqKeyed = directModels({ ...EMPTY_ENV, GROQ_API_KEY: 'x' }).map((m) => m.provider);
-    assert.ok(!groqKeyed.includes('groq'));
+    // An aligned provider is not registered at all, so its key changes
+    // nothing — there is no aligned model to resurrect.
+    const alignedKeyed = directModels({ ...EMPTY_ENV, GROQ_API_KEY: 'x', ANTHROPIC_API_KEY: 'x' }).map((m) => m.provider);
+    assert.ok(!alignedKeyed.includes('groq'));
+    assert.ok(!alignedKeyed.includes('anthropic'));
   });
 
   it('marks every model with its source', () => {
@@ -96,13 +99,20 @@ describe('resolveModel()', () => {
     assert.equal(await resolveModel({ id: 'any', provider: 'evil', source: 'direct' }, EMPTY_ENV), null);
   });
 
-  it('returns null for aligned registry entries — they are inert, key or no key', async () => {
+  it('has no aligned model to resolve — the aligned providers are unregistered or empty', async () => {
+    for (const provider of ['groq', 'gemini', 'pollinations', 'nvidia', 'mistral']) {
+      assert.equal(PROVIDERS[provider], undefined, provider);
+    }
+    // Anthropic/Cohere keep a shape-only entry (no models) so the
+    // dispatchers still match error-inbox's wire format.
+    assert.deepEqual(PROVIDERS.anthropic.models, []);
+    assert.deepEqual(PROVIDERS.cohere.models, []);
     assert.equal(
       await resolveModel({ id: 'openai/gpt-oss-120b', provider: 'groq', source: 'direct' }, { GROQ_API_KEY: 'x' }),
       null
     );
     assert.equal(
-      await resolveModel({ id: 'gemini-2.5-flash', provider: 'gemini', source: 'direct' }, { GEMINI_API_KEY: 'x' }),
+      await resolveModel({ id: 'claude-opus-5', provider: 'anthropic', source: 'direct' }, { ANTHROPIC_API_KEY: 'x' }),
       null
     );
     assert.equal(
@@ -128,7 +138,8 @@ describe('resolveModel()', () => {
     assert.equal(m.url, PROVIDERS.horde.url);
   });
 
-  it('does not resolve omniroute auto: an opaque router is not an uncensored model', async () => {
+  it('has no opaque router registered: OmniRoute auto is gone, not merely filtered', async () => {
+    assert.equal(PROVIDERS.omniroute, undefined);
     assert.equal(
       await resolveModel(
         { id: 'auto', provider: 'omniroute', source: 'direct' },
@@ -161,21 +172,18 @@ describe('groupBySource()', () => {
   });
 });
 
-describe('pollinations (allowlisted GPT-OSS fallback)', () => {
-  it('is in the pool: its route serves GPT-OSS 20B, keyless', async () => {
-    const models = directModels(EMPTY_ENV);
-    const providers = new Set(models.map((m) => m.provider));
-    assert.ok(providers.has('pollinations'));
-    const resolved = await resolveModel({ id: 'openai', provider: 'pollinations', source: 'direct' }, EMPTY_ENV);
-    assert.ok(resolved);
-    assert.equal(resolved.provider, 'pollinations');
-    assert.equal(resolved.id, 'openai');
+describe('aligned fallbacks are out of the pool (2026-11-22)', () => {
+  it('does not register Pollinations: its only route served aligned GPT-OSS 20B', () => {
+    assert.equal(PROVIDERS.pollinations, undefined);
+    const providers = new Set(directModels(EMPTY_ENV).map((m) => m.provider));
+    assert.ok(!providers.has('pollinations'));
   });
 
-  it('keeps its verified endpoint config in the registry', () => {
-    assert.equal(PROVIDERS.pollinations.url, 'https://text.pollinations.ai/openai/v1/chat/completions');
-    assert.equal(PROVIDERS.pollinations.auth, 'none');
-    assert.equal(PROVIDERS.pollinations.envKey, null);
+  it('resolves nothing for the old pollinations/openai route', async () => {
+    assert.equal(
+      await resolveModel({ id: 'openai', provider: 'pollinations', source: 'direct' }, EMPTY_ENV),
+      null
+    );
   });
 });
 

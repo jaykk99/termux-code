@@ -15,7 +15,7 @@ Layout (same shape as the ReconAnything NN scorer):
 - train.py: trains, writes weights.json + viewer-data.json
 - score.py: scores one model or ranks all models under a scenario
 - viewer.html: metrics viewer (open as file://)
-- dataset.json: the 828 labeled rows + build provenance
+- dataset.json: the labeled rows + build provenance
 
 Train: node nn/build_dataset.mjs && python3 -m nn.train
 Score: python3 -m nn.score --scenario no-keys --all

@@ -13,34 +13,38 @@ import { mkdtempSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isUncensoredModel } from '../lib/uncensored.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
 const dataset = JSON.parse(readFileSync(path.join(ROOT, 'nn', 'dataset.json'), 'utf-8'));
 
 describe('nn/dataset.json (built from lib/models.mjs)', () => {
-  it('has 893 rows: 47 registry models x 19 env scenarios', () => {
-    assert.equal(dataset.registry_models, 47);
-    assert.equal(dataset.scenarios.length, 19);
-    assert.equal(dataset.rows, 893);
-    assert.equal(dataset.rows_data.length, 893);
+  it('has 234 rows: 26 registry models x 9 env scenarios', () => {
+    assert.equal(dataset.registry_models, 26);
+    assert.equal(dataset.scenarios.length, 9);
+    assert.equal(dataset.rows, 234);
+    assert.equal(dataset.rows_data.length, 234);
   });
 
-  it('has both classes, with the small positive class the filter explains', () => {
-    assert.equal(dataset.n_positive, 52);
-    assert.equal(dataset.n_negative, 841);
+  it('has both classes, and every listed model is uncensored-lineage', () => {
+    assert.equal(dataset.n_positive, 59);
+    assert.equal(dataset.n_negative, 175);
     const listed = new Set(
       dataset.rows_data.filter((r) => r.label === 1)
         .map((r) => `${r.provider}/${r.model_id}`),
     );
-    // Only horde/any (always) + pollinations/openai (always, keyless
-    // fallback) + the 6 hf models (HF_TOKEN set) + bro/bro
-    // (BRO_BASE_URL set) survive the uncensored-only filter + key gating.
-    assert.equal(listed.size, 9);
+    // horde/any is listed in every scenario; bro/hf/venice/naga/openrouter/
+    // deepinfra/llm7 only once their key is set. Pollinations is gone: its
+    // only route served aligned GPT-OSS.
+    assert.equal(listed.size, 26);
     assert.ok(listed.has('horde/any'));
-    assert.ok(listed.has('pollinations/openai'));
-    for (const m of listed) {
-      assert.ok(m.startsWith('horde/') || m.startsWith('hf/') || m.startsWith('pollinations/') || m.startsWith('bro/'), m);
+    assert.ok(listed.has('bro/bro'));
+    assert.ok(!listed.has('pollinations/openai'));
+    for (const key of listed) {
+      const at = key.indexOf('/');
+      const provider = key.slice(0, at);
+      assert.ok(isUncensoredModel({ id: key.slice(at + 1), provider }), key);
     }
   });
 
@@ -64,7 +68,7 @@ describe('nn/train.py smoke train', () => {
         { cwd: ROOT, encoding: 'utf-8', timeout: 110_000 });
       assert.ok(existsSync(path.join(dir, 'weights.json')));
       const viewer = JSON.parse(readFileSync(path.join(dir, 'viewer-data.json'), 'utf-8'));
-      assert.equal(viewer.test_rows, 178);
+      assert.equal(viewer.test_rows, 47);
       assert.ok(viewer.test_metrics.roc_auc >= 0 && viewer.test_metrics.roc_auc <= 1);
       assert.ok(viewer.test_metrics.accuracy >= 0 && viewer.test_metrics.accuracy <= 1);
     } finally {

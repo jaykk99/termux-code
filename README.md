@@ -38,13 +38,13 @@ error-inbox's actual agent, not a local coding session.
 ## Architecture
 
 ```
-  Termux                          Vercel                      19 providers
+  Termux                          Vercel                    uncensored routes
 ┌─────────────┐            ┌──────────────────┐         ┌────────────────┐
-│ termux-code  │ /model ──> │ /api/chat        │ ──────> │ Kilo, LLM7,    │
-│  read/edit   │            │                  │         │ Horde (no key) │
-│  grep/bash   │ <─ tools ─ │ /api/models      │ <────── │ Groq, Gemini,  │
-│  (local fs)  │            │ /api/models/prefs│         │ NVIDIA, Cohere,│
-│              │ /ask ────> │ /api/ask         │ ──────> │ Cerebras, ...  │
+│ termux-code  │ /model ──> │ /api/chat        │ ──────> │ Horde, Kilo    │
+│  read/edit   │            │                  │         │ (no key), Bro, │
+│  grep/bash   │ <─ tools ─ │ /api/models      │ <────── │ Venice, Naga,  │
+│  (local fs)  │            │ /api/models/prefs│         │ OpenRouter, HF,│
+│              │ /ask ────> │ /api/ask         │ ──────> │ DeepInfra, ... │
 └──────────────┘            └────────┬─────────┘         └────────────────┘
                                       │
                                       ▼
@@ -94,31 +94,18 @@ error-inbox's own `.env` exactly, so you can copy values straight across:
 
 | Variable | Provider | Needs a key? |
 | --- | --- | --- |
-| — | Kilo | No — always on |
-| — | LLM7 | No — always on |
+| — | Kilo | No — always on (models discovered live) |
+| `LLM7_API_KEY` | LLM7 | Yes — free key; LLM7's only uncensored entry is key-gated |
 | `AIHORDE_API_KEY` | AI Horde | No — anonymous key works, this just raises priority |
 | `BRO_BASE_URL` (+ optional `BRO_ACCESS_CODE`) | Bro (your own gateway) | No code needed today — the gateway is unauthenticated; the code is sent as a Bearer token only when set. Off until `BRO_BASE_URL` is set; first in the chain once it is, Horde stays the fallback |
-| `GROQ_API_KEY` | Groq | Yes |
-| `GEMINI_API_KEY` | Gemini | Yes (chat only — see below) |
 | `OPENROUTER_API_KEY` | OpenRouter | Yes |
-| `NVIDIA_API_KEY` | NVIDIA NIM | Yes |
-| `COHERE_API_KEY` | Cohere | Yes (chat only; currently empty — see below) |
-| `CEREBRAS_API_KEY` | Cerebras | Yes |
-| `SAMBANOVA_API_KEY` | SambaNova | Yes |
-| `GITHUB_MODELS_TOKEN` | GitHub Models | Yes (PAT with models permission) |
-| `MISTRAL_API_KEY` | Mistral | Yes |
-| `TOGETHER_API_KEY` | Together AI | Yes |
-| `FIREWORKS_API_KEY` | Fireworks | Yes |
 | `DEEPINFRA_API_KEY` | DeepInfra | Yes — hosts Euryale L3.1 70B |
 | `VENICE_API_KEY` | Venice | Yes — uncensored-first catalogue (`venice-uncensored-*`, abliterated Gemma/GLM/DeepSeek) |
 | `NAGA_API_KEY` | Naga | Yes — independent host for Dolphin / Euryale / Magnum / Hermes / MythoMax |
-| `LLM7_API_KEY` | LLM7 | No — optional free key; unlocks the key-gated uncensored Gemma entry |
 | `HF_TOKEN` | Hugging Face | Yes |
-| `HF_MODEL` | Hugging Face (EI catalog) | No (default-model override; keyless route) |
+| `HF_MODEL` | Hugging Face (EI catalog) | No — default-model override; only an uncensored-lineage id is accepted |
 | `COMPOSIO_API_KEY` | Composio (agent app tools) | Yes |
 | `GRATISFY_API_KEY` + `GRATISFY_BASE_URL` | Gratisfy | Yes (models discovered live) |
-| `OMNIROUTE_API_KEY` + `OMNIROUTE_BASE_URL` | OmniRoute (self-hosted) | Yes, both |
-| `ANTHROPIC_API_KEY` + `ANTHROPIC_MODEL` | Anthropic | Yes |
 | `ERROR_INBOX_URL` | — | No, defaults to `error-inbox.onrender.com` |
 | `ERROR_INBOX_KEY` | — | Only for `/ask` (an `eibx_...` token, minted on error-inbox's Settings page) |
 | `NEXT_PUBLIC_SITE_URL` | — | Shown in the install command on the landing page |
@@ -143,8 +130,8 @@ Termux command page. The chat itself lives in Termux on the phone.
 - **Hosted agent.** `/api/bot/chat` is an API endpoint (no web UI) behind
   the owner's session. The default model is the first uncensored pick
   from the owner's Inbox Models pool, served through error-inbox's
-  Hugging Face catalog route (`HF_MODEL` overrides it), with the repo's
-  failover chain behind it. Its tools run server-side and are
+  Hugging Face catalog route (`HF_MODEL` overrides it, but only to another
+  uncensored-lineage id), with the repo's failover chain behind it. Its tools run server-side and are
   session-only: `github_api` (GitHub as you, via the `GITHUB_TOKEN`
   server env), `composio_search` / `composio_execute` (your connected
   apps — Gmail, Calendar, Facebook, Outlook — through your Composio
@@ -162,13 +149,15 @@ Termux command page. The chat itself lives in Termux on the phone.
 
 ## Where the model data actually comes from
 
-`lib/models.mjs` is built from error-inbox's own `lib/llm.ts`, pulled from
-source rather than guessed — the exact base URLs, auth styles, and model IDs
-it uses today. Three sources merge in `/api/models`:
+`lib/models.mjs` registers uncensored-lineage models only — an aligned
+model is not in the registry at all, so there is nothing aligned to fall
+back to. Base URLs and auth styles match error-inbox's own `lib/llm.ts`,
+pulled from source rather than guessed. Three sources merge in
+`/api/models`:
 
-1. **Direct pool.** Every provider error-inbox itself knows how to call,
-   gated on the same env var names. A model only appears once its key is
-   set — same as error-inbox's own `buildPool()`.
+1. **Direct pool.** The registered uncensored routes, gated on their env
+   var names. A model only appears once its key is set — same as
+   error-inbox's own `buildPool()`.
 2. **Gratisfy live.** Discovered at request time from Gratisfy's own
    `/v1/models`, same as error-inbox does, so it never goes stale.
 3. **Error Inbox live.** `GET {ERROR_INBOX_URL}/api/models` — the actual
@@ -181,7 +170,9 @@ the other RLHF flagships) never appear in `/api/models`, the phone's
 picker, or the failover chain. The policy lives in one owner-editable
 file, `lib/uncensored.mjs` — a curated provider pool (`hf`), id/label
 markers for the uncensored lineages (Heretic, Dolphin, Stheno,
-Rocinante, abliterated builds), and a short exact allowlist. A model a
+Rocinante, abliterated builds), and a short exact allowlist holding only
+the AI Horde dispatcher (which fails rather than submit an any-worker job)
+and the Bro gateway. A model a
 provider rejects as unknown (BAD_MODEL) is blacklisted for the session
 after the first rejection instead of being retried every turn, and
 rate-limit retry-after hints pace the chain instead of being hammered
@@ -189,18 +180,18 @@ through.
 
 ## Request shapes, per provider
 
-Most of the 19 are one OpenAI-compatible `chat/completions` shape with a
-`Bearer` header (or no header at all, for Kilo and LLM7). Four diverge, and
-each is handled to match:
+Every registered route is the OpenAI-compatible `chat/completions` shape
+with a `Bearer` header (or no header at all, for Kilo), except the two below
+it. The dispatcher also still carries three shapes with no registered
+provider behind them, kept for parity with error-inbox:
 
 - **Anthropic** — native `tool_use` blocks, full local tool support.
 - **Gemini** — Google's own `systemInstruction`/`contents` shape. **Chat
   only** here: its function-calling schema differs enough from OpenAI's that
   wiring it without a live key to verify against risked shipping it wrong.
 - **Cohere** — `v2/chat`, OpenAI-shaped messages but content returns as an
-  array of parts. **Chat only**, and currently contributes zero models
-  anyway — error-inbox's own pool excludes Cohere right now (both
-  command-a models read 0% on its live health page).
+  array of parts. **Chat only**, and it registers no models: every Cohere
+  model is aligned.
 - **AI Horde** — an async submit-then-poll queue, volunteer-run and slow.
   Single-shot, no tools, last resort by design.
 

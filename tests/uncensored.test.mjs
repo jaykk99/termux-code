@@ -28,9 +28,9 @@ describe('isUncensoredModel()', () => {
     assert.equal(isUncensoredModel({ id: 'any', provider: 'horde', label: 'Any available worker (slow, last resort)' }), true);
   });
 
-  it('accepts Pollinations GPT-OSS via the allowlist (fast fallback)', () => {
-    assert.ok(UNCENSORED_ALLOWLIST.has('pollinations/openai'));
-    assert.equal(isUncensoredModel({ id: 'openai', provider: 'pollinations', label: 'Pollinations OpenAI (keyless)' }), true);
+  it('rejects the removed Pollinations GPT-OSS route: aligned weights are not uncensored', () => {
+    assert.ok(!UNCENSORED_ALLOWLIST.has('pollinations/openai'));
+    assert.equal(isUncensoredModel({ id: 'openai', provider: 'pollinations', label: 'Pollinations OpenAI (keyless)' }), false);
   });
 
   it('accepts allowlisted routes whose id already carries the provider key', () => {
@@ -39,7 +39,6 @@ describe('isUncensoredModel()', () => {
     // 'horde/horde/any' and the allowlisted route is dropped from the
     // inbox leg (found by the fetchErrorInboxModels tests).
     assert.equal(isUncensoredModel({ id: 'horde/any', provider: 'horde', label: 'any (9/10 recent)' }), true);
-    assert.equal(isUncensoredModel({ id: 'pollinations/openai', provider: 'pollinations', label: 'openai (7/7 recent)' }), true);
     assert.equal(isUncensoredModel({ id: 'bro/bro', provider: 'bro', label: 'bro (3/3 recent)' }), true);
   });
 

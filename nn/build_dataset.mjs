@@ -1,12 +1,12 @@
 /**
  * Build nn/dataset.json by running the repo's own code.
  *
- * Rows: every model in lib/models.mjs PROVIDERS (46) x every env
- * scenario (18) = 828 rows. A row is one model under one env config;
- * label 1 = directModels(env) lists it, 0 = it does not.
+ * Rows: every model in lib/models.mjs PROVIDERS x every env scenario. A
+ * row is one model under one env config; label 1 = directModels(env)
+ * lists it, 0 = it does not.
  *
- * Env scenarios (from .env.example's real key names): no keys set,
- * each of the 16 distinct envKeys set alone, and all keys set.
+ * Env scenarios (from .env.example's real key names): no keys set, each
+ * distinct envKey set alone, and all keys set.
  * Nothing is invented: labels are directModels() outputs, features
  * are registry fields (provider, auth, free, id/label text) plus
  * which keys the scenario sets. Run: node nn/build_dataset.mjs
@@ -18,8 +18,10 @@ import { PROVIDERS, directModels, capabilities } from '../lib/models.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
+// Only providers that register a model get a scenario: the shape-only
+// entries (Anthropic/Cohere) carry a key but no model to list.
 const ENV_KEYS = [...new Set(
-  Object.values(PROVIDERS).map((c) => c.envKey).filter(Boolean),
+  Object.values(PROVIDERS).filter((c) => c.models.length).map((c) => c.envKey).filter(Boolean),
 )].sort();
 
 const scenarios = [{ name: 'no-keys', env: {} }];
@@ -54,7 +56,7 @@ for (const sc of scenarios) {
 const nPos = rows.filter((r) => r.label === 1).length;
 const out = {
   built_at: new Date().toISOString(),
-  source: 'lib/models.mjs PROVIDERS + directModels(env), 18 env scenarios',
+  source: `lib/models.mjs PROVIDERS + directModels(env), ${scenarios.length} env scenarios`,
   scenarios: scenarios.map((s) => s.name),
   registry_models: registry.length,
   rows: rows.length,

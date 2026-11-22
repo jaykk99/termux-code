@@ -11,23 +11,25 @@ the model as usable**.
 
 ## Dataset (real repo data only)
 
-- 46 models in the `PROVIDERS` registry in `lib/models.mjs`.
-- 18 env scenarios: no keys set, each of the 16 distinct env keys set
-  alone, all keys set (key names from `.env.example`).
-- 828 rows: **30 listed / 798 not-listed (3.6% positive)**.
+- 26 models in the `PROVIDERS` registry in `lib/models.mjs` (uncensored
+  lineage only — an aligned model is not registered at all).
+- 9 env scenarios: no keys set, each distinct env key of a provider that
+  registers a model set alone, all keys set (key names from
+  `.env.example`).
+- 234 rows: **59 listed / 175 not-listed (25.2% positive)**.
 - Labels come from running the repo's own `directModels(env)`; rebuild
   with `node nn/build_dataset.mjs`.
-- Stratified split: 662 train / 166 test. Train positives are
+- Stratified split: 187 train / 47 test. Train positives are
   duplicated to 20% so the network sees the minority class at all;
   the test set is never oversampled and stays at natural prevalence.
 
 ## What the data says
 
-Only **7 of the 46 registry models are ever listed**: `horde/any`
-under every env, and the 6 `hf` models only when `HF_TOKEN` is set.
-Everything else is dropped by the uncensored-only filter
-(`lib/uncensored.mjs`) or by key gating. That is the repo's real
-behavior, and the main thing this network learns is that interaction.
+Only **`horde/any` is listed under every env**: every other registry
+model appears once its own key is set. Nothing is dropped by the
+uncensored-only filter (`lib/uncensored.mjs`) any more — the registry
+itself carries uncensored-lineage models only, so what the network
+learns is the key gating on top of that.
 
 ## Honest limits
 
@@ -35,7 +37,7 @@ behavior, and the main thing this network learns is that interaction.
   reproduced `directModels()`' gating + the uncensored filter, not a
   discovery. 100% test accuracy is the rule-reproduction flag, not
   a win.
-- **Severe skew.** Majority baseline is 96.4%; accuracy alone means
+- **Skew.** Majority baseline is 74.5%; accuracy alone means
   nothing. Judge by listed-class recall and ROC AUC.
 - **Pre-check only.** The model never enables anything;
   `directModels()` stays the authority.

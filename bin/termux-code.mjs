@@ -39,7 +39,7 @@ const HISTORY_KEEP = 200;
 
 /** Providers with no native function calling. They still drive tools
  *  through the text protocol (lib/text-tools.mjs), just less reliably. */
-const NO_TOOLS = new Set(['gemini', 'cohere', 'horde', 'hf']);
+const NO_TOOLS = new Set(['horde', 'hf']);
 
 /* ---------- config ---------- */
 
@@ -588,9 +588,7 @@ async function main() {
   let model =
     models.find((m) => m.id === cfg.modelId && m.source === cfg.modelSource) ||
     // Default pick: the Heretic dispatcher (AI Horde) first when it is in
-    // the catalogue — it is the uncensored primary. Pollinations GPT-OSS
-    // is the fast fallback, not the primary, so it must not win the
-    // tool-capable find below just by having auth 'none'.
+    // the catalogue — it is the uncensored primary.
     models.find((m) => m.provider === 'horde' && isUncensoredModel(m)) ||
     // Default pick: an uncensored tool-capable model when one is in the
     // catalogue (e.g. an uncensored HF build behind a gateway key), else the
