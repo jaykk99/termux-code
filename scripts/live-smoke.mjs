@@ -331,7 +331,9 @@ async function attemptRoute(model, { dir, env, steps, agent, runTool }) {
   const note = refusal
     ? refusal
     : `bash=${bashRan ? 'ok' : 'no'}, file=${wrote ? 'ok' : 'no'}, answer=${echoed ? 'ok' : 'off'}`;
-  return { status, ms: Date.now() - started, tools: used, note, reply: oneLine(text).slice(0, 300) };
+  // An empty answer is itself the finding, so it must not print as nothing.
+  const reply = oneLine(text).slice(0, 300) || '(empty reply — no text, no tool call)';
+  return { status, ms: Date.now() - started, tools: used, note, reply };
 }
 
 /**

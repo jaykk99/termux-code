@@ -6,8 +6,8 @@ import path from 'node:path';
 
 import { parseTextToolCalls, toTextTranscript, textProtocolPrompt, normalizeToolDefs } from '../lib/text-tools.mjs';
 import { composioToolsForOpenAI, composioToolsForAnthropic } from '../lib/server-tools.mjs';
-import { complete, applyTextProtocol, appendToolResult, rejectsTools, hordePrompt, cutAtNextTurn } from '../lib/agent.mjs';
-import { runTool, applyEdits } from '../lib/tools.mjs';
+import { complete, applyTextProtocol, appendToolResult, rejectsTools, hordePrompt, cutAtNextTurn, textBrief } from '../lib/agent.mjs';
+import { runTool, applyEdits, TOOL_SCHEMA } from '../lib/tools.mjs';
 import { parsePatch, applyPatchText } from '../lib/patch.mjs';
 import { compactInPlace, needsCompaction, digest, SUMMARY_MARK } from '../lib/context.mjs';
 import { isOrphanedStart } from '../lib/history.mjs';
@@ -188,6 +188,18 @@ describe('Horde / completion-style helpers', () => {
   it('cutAtNextTurn drops a fabricated assistant header (seen live on a Horde worker)', () => {
     assert.equal(cutAtNextTurn('answer\n### Assistant:\nmore'), 'answer');
     assert.equal(cutAtNextTurn('### Assistant:\nthe real answer'), 'the real answer');
+  });
+
+  it('the text brief lists every tool in TOOL_SCHEMA, by name, with no descriptions', () => {
+    const brief = textBrief();
+    // Generated from the same schema the native-tool routes use: a tool added
+    // or renamed there cannot go missing from a small model's brief.
+    for (const t of TOOL_SCHEMA) assert.match(brief, new RegExp(`- ${t.name}\\(`), t.name);
+    assert.match(brief, /- bash\(command\)/);
+    // Names and arguments only — the long browser paragraph is what a worker
+    // quoted back instead of doing the task (live 2026-11-22).
+    assert.doesNotMatch(brief, /Chromium|lib\/browser\.mjs/);
+    assert.ok(brief.length < 1200, `brief is ${brief.length} chars`);
   });
 
   it('the protocol prompt lists the editing tools', () => {
