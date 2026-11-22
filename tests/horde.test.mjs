@@ -6,7 +6,7 @@
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { complete, pickHordeUncensoredModels } from '../lib/agent.mjs';
+import { complete, pickHordeUncensoredModels, SYSTEM_PROMPT } from '../lib/agent.mjs';
 
 const HORDE_URL = 'https://aihorde.net/api/v2/generate/text/async';
 const hordeModel = {
@@ -189,6 +189,37 @@ describe('callHorde() via complete()', () => {
     const reply = await complete(hordeModel, [{ role: 'user', content: 'say hi' }], {});
     assert.equal(submits.length, 2);
     assert.equal(reply.text, 'second try answered');
+  });
+
+  it('sends a short task-focused prompt, not the full Termux brief', async () => {
+    // Live 2026-11-22: with the 5.3k-char prompt (Termux notes + full tool
+    // descriptions) a worker answered about the browser paragraph instead of
+    // the request. The brief keeps the ask salient.
+    let submitted = null;
+    responder = async (url, options) => {
+      if (url.includes('/status/models')) return jsonRes([{ name: 'koboldcpp/L3-8B-Stheno-v3.2-GGUF', count: 1, eta: 0 }]);
+      if (url.endsWith('/async')) {
+        submitted = JSON.parse(options.body).prompt;
+        return jsonRes({ id: 'job-brief' });
+      }
+      return jsonRes({ done: true, generations: [{ text: 'ok' }] });
+    };
+    await complete(
+      hordeModel,
+      [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: 'Run node -e "console.log(6*7)"' },
+      ],
+      {},
+    );
+    assert.match(submitted, /console\.log\(6\*7\)/);
+    assert.match(submitted, /<tool_call>/);
+    assert.match(submitted, /- bash\(command\)/);
+    // The format rule sits in the same turn as the ask, after it: a small
+    // model follows the nearest instruction.
+    assert.match(submitted, /console\.log\(6\*7\)[\s\S]*Respond with <tool_call> JSON blocks/);
+    assert.doesNotMatch(submitted, /Chromium|Composio|pkg install|Android phone\.\n\nEnvironment/);
+    assert.ok(submitted.length < 1600, `prompt is ${submitted.length} chars`);
   });
 
   it('resubmits once when a cold worker replays the prompt instead of answering', async () => {
