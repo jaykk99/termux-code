@@ -41,6 +41,16 @@ describe('pickHordeUncensoredModels()', () => {
     ]);
   });
 
+  it('trims the padding the live status feed puts on worker names', () => {
+    // Observed live: "name":" koboldcpp/gemma-4-31B-it-heretic". Sent back
+    // with the space, a models-restricted submit names a worker Horde does
+    // not know and is rejected, dropping the route to any-worker.
+    assert.deepEqual(
+      pickHordeUncensoredModels([{ name: ' koboldcpp/Gemma-4-E4B-it-Uncensored', count: 1, eta: 0 }]),
+      ['koboldcpp/Gemma-4-E4B-it-Uncensored']
+    );
+  });
+
   it('returns [] when nothing uncensored is online or input is bad', () => {
     assert.deepEqual(pickHordeUncensoredModels([{ name: 'google/gemma-4-31b', count: 4, eta: 5 }]), []);
     assert.deepEqual(pickHordeUncensoredModels(null), []);

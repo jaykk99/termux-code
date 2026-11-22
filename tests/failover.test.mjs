@@ -564,6 +564,15 @@ describe('transient retry', () => {
     assert.equal(isTransientError(new Error('400 Bad Request')), false);
     assert.equal(isTransientError(new Error('401 Unauthorized')), false);
   });
+
+  it('treats a 402 rate-limit reply as transient so the keyless route keeps its retry', () => {
+    // Pollinations answers "payment required" for its one-reply-per-30s
+    // per-IP cap; that is a pacing hint, and parseRetryAfterMs already
+    // understands it. Classified non-transient, one burst of 402s removed
+    // the fast keyless fallback from the turn with no retry at all.
+    assert.equal(isTransientError(new Error('Pollinations 402: {"error":"retry after 25s"}')), true);
+    assert.equal(isTransientError(new Error('LLM7 429 Too Many Requests')), true);
+  });
 });
 
 describe('pinFirst', () => {
@@ -578,6 +587,24 @@ describe('pinFirst', () => {
     assert.equal(model.id, 'b');
   });
 
+  it('does not promote a pinned provider whose circuit breaker is open', async () => {
+    // The shipped default pin is Horde. Promoted to the front regardless of
+    // cooldown, a parked Horde spent its two-minute queue poll on every turn
+    // before the chain could reach a keyless route that answered.
+    const horde = { id: 'any', provider: 'horde', auth: 'horde', free: true, source: 'direct', label: 'Any available worker (slow, last resort)' };
+    const pollinations = { id: 'openai', provider: 'pollinations', auth: 'none', free: true, source: 'direct', label: 'Pollinations OpenAI (keyless)' };
+    const tr = new FailureTracker();
+    for (let i = 0; i < FAILURES_TO_TRIP; i++) tr.recordFailure('horde');
+    assert.equal(tr.isCoolingDown('horde'), true);
+    const calls = [];
+    const { model } = await completeWithFailover([horde, pollinations], [], async (m) => {
+      calls.push(`${m.provider}/${m.id}`);
+      return { text: 'ok', toolCalls: [] };
+    }, tr, { pinFirst: horde });
+    assert.deepEqual(calls, ['pollinations/openai']);
+    assert.equal(model.provider, 'pollinations');
+  });
+
   it('ignores an unknown pinFirst', async () => {
     const models = [M('a', 'kilo', 'none'), M('b', 'llm7', 'none')];
     const calls = [];
@@ -586,6 +613,26 @@ describe('pinFirst', () => {
       return { text: 'ok', toolCalls: [] };
     }, null, { pinFirst: { id: 'nope', provider: 'nope' } });
     assert.deepEqual(calls, ['a']);
+  });
+});
+
+describe('buildFailoverPlan() — one attempt per route', () => {
+  it('collapses the same provider/id arriving from several sources', () => {
+    const direct = { ...M('openai', 'pollinations', 'none', true), source: 'direct' };
+    const inbox = { ...M('openai', 'pollinations', 'none', true), source: 'error-inbox' };
+    const plan = buildFailoverPlan([direct, inbox]);
+    assert.equal(plan.length, 1);
+    assert.equal(plan[0].provider, 'pollinations');
+  });
+
+  it('does not count a duplicated dead route several times against its provider', async () => {
+    const a = M('x', 'kilo', 'none', true);
+    const b = { ...M('x', 'kilo', 'none', true), source: 'kilo-live' };
+    const tr = new FailureTracker();
+    await assert.rejects(() => completeWithFailover([a, b], [], async () => {
+      throw new Error('kilo 500');
+    }, tr));
+    assert.equal(tr.failures('kilo'), 1);
   });
 });
 

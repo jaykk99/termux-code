@@ -109,7 +109,10 @@ error-inbox's own `.env` exactly, so you can copy values straight across:
 | `MISTRAL_API_KEY` | Mistral | Yes |
 | `TOGETHER_API_KEY` | Together AI | Yes |
 | `FIREWORKS_API_KEY` | Fireworks | Yes |
-| `DEEPINFRA_API_KEY` | DeepInfra | Yes |
+| `DEEPINFRA_API_KEY` | DeepInfra | Yes — hosts Euryale L3.1 70B |
+| `VENICE_API_KEY` | Venice | Yes — uncensored-first catalogue (`venice-uncensored-*`, abliterated Gemma/GLM/DeepSeek) |
+| `NAGA_API_KEY` | Naga | Yes — independent host for Dolphin / Euryale / Magnum / Hermes / MythoMax |
+| `LLM7_API_KEY` | LLM7 | No — optional free key; unlocks the key-gated uncensored Gemma entry |
 | `HF_TOKEN` | Hugging Face | Yes |
 | `HF_MODEL` | Hugging Face (EI catalog) | No (default-model override; keyless route) |
 | `COMPOSIO_API_KEY` | Composio (agent app tools) | Yes |

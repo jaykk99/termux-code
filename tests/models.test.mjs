@@ -348,3 +348,54 @@ describe('live model-list fetchers (mocked fetch)', () => {
     });
   });
 });
+
+describe('keyed uncensored catalogue (Venice, Naga, OpenRouter, DeepInfra, LLM7)', () => {
+  it('keeps the new keyed providers off until their key is set', () => {
+    const before = new Set(directModels(EMPTY_ENV).map((m) => m.provider));
+    assert.ok(!before.has('venice'));
+    assert.ok(!before.has('naga'));
+    const after = new Set(directModels({ VENICE_API_KEY: 'x', NAGA_API_KEY: 'x' }).map((m) => m.provider));
+    assert.ok(after.has('venice'));
+    assert.ok(after.has('naga'));
+  });
+
+  it('lists only uncensored-lineage models for Venice and Naga', () => {
+    const models = directModels({ VENICE_API_KEY: 'x', NAGA_API_KEY: 'x' });
+    const venice = models.filter((m) => m.provider === 'venice');
+    assert.ok(venice.some((m) => m.id === 'venice-uncensored-1-2'));
+    assert.ok(venice.every((m) => isUncensoredModel(m)));
+    assert.equal(PROVIDERS.venice.url, 'https://api.venice.ai/api/v1/chat/completions');
+    assert.equal(PROVIDERS.venice.auth, 'bearer');
+    const naga = models.filter((m) => m.provider === 'naga');
+    assert.ok(naga.some((m) => m.id === 'sao10k/l3.1-euryale-70b'));
+    assert.ok(naga.every((m) => isUncensoredModel(m)));
+    assert.equal(PROVIDERS.naga.url, 'https://api.naga.ac/v1/chat/completions');
+  });
+
+  it('gates only the LLM7 uncensored Gemma entry on LLM7_API_KEY', () => {
+    const keyless = directModels(EMPTY_ENV).filter((m) => m.provider === 'llm7');
+    assert.ok(!keyless.some((m) => m.id === 'gemma-4-uncensored'));
+    const keyed = directModels({ LLM7_API_KEY: 'x' }).filter((m) => m.provider === 'llm7');
+    assert.deepEqual(keyed.map((m) => m.id), ['gemma-4-uncensored']);
+  });
+
+  it('gives the existing OpenRouter and DeepInfra keys a runnable uncensored entry', () => {
+    const models = directModels({ OPENROUTER_API_KEY: 'x', DEEPINFRA_API_KEY: 'x' });
+    assert.ok(
+      models.some((m) => m.provider === 'openrouter' && m.id === 'cognitivecomputations/dolphin-mistral-24b-venice-edition')
+    );
+    assert.ok(models.some((m) => m.provider === 'deepinfra' && m.id === 'Sao10K/L3.1-70B-Euryale-v2.2'));
+  });
+
+  it('resolves the keyed routes only when their key is present', async () => {
+    const ref = { id: 'venice-uncensored-1-2', provider: 'venice', source: 'direct' };
+    assert.equal(await resolveModel(ref, EMPTY_ENV), null);
+    const v = await resolveModel(ref, { VENICE_API_KEY: 'x' });
+    assert.equal(v?.url, PROVIDERS.venice.url);
+    const n = await resolveModel({ id: 'gryphe/mythomax-l2-13b', provider: 'naga', source: 'direct' }, { NAGA_API_KEY: 'x' });
+    assert.ok(n && n.provider === 'naga');
+    const gemma = { id: 'gemma-4-uncensored', provider: 'llm7', source: 'direct' };
+    assert.equal(await resolveModel(gemma, EMPTY_ENV), null);
+    assert.ok(await resolveModel(gemma, { LLM7_API_KEY: 'x' }));
+  });
+});
