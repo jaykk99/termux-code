@@ -309,10 +309,10 @@ refusal or a tool call its wire format drops. `npm run test:live` does: it
 clones a real GitHub checkout into a temp dir, runs code there with the real
 tool runner, then asks every runnable uncensored route to run a shell command
 and write a file in that checkout, executing each tool call the model returns.
-A route that errors, refuses, or answers without a tool call retries once on a
-fresh job and a fresh token before it counts as a failure, since volunteer
-workers rotate and a cold one reads like a broken route; `--no-retry` makes a
-single attempt count. It reads keys from `.env`, and reports no runnable route
+A route that errors, refuses, answers without a tool call, or runs a command
+without writing the file retries once on a fresh job and a fresh token before
+it counts as a failure, since volunteer workers rotate and a cold one reads
+like a broken route; `--no-retry` makes a single attempt count. It reads keys from `.env`, and reports no runnable route
 (exit 2) when none is gated on:
 
 ```sh

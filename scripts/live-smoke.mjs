@@ -14,7 +14,8 @@
  *   3. asks each runnable uncensored model to run a shell command and write
  *      a file there, executing every tool call it returns.
  *
- * A route fails when it errors, refuses, or never actually drives a tool.
+ * A route fails when it errors, refuses, never drives a tool, or runs a
+ * command without ever writing the file it was asked for.
  * Only uncensored-lineage routes run: the list comes from directModels(env)
  * and every entry is re-checked with isUncensoredModel().
  *
@@ -255,7 +256,9 @@ async function main() {
         for (const r of result.routes.filter((x) => x.status !== 'ok' && x.reply)) {
           console.log(`  ${r.route} said: ${r.reply}`);
         }
-        console.log(`${result.routes.filter((r) => r.status === 'ok').length}/${result.routes.length} uncensored routes ran code in the checkout`);
+        console.log(
+          `${result.routes.filter((r) => r.status === 'ok').length}/${result.routes.length} uncensored routes ran a command and wrote smoke.txt in the checkout`,
+        );
       }
     }
 
@@ -327,7 +330,10 @@ async function attemptRoute(model, { dir, env, steps, agent, runTool }) {
   const wrote = existsSync(file) && readFileSync(file, 'utf8').includes(token);
   const bashRan = used.includes('bash');
   const echoed = String(text).includes(token) || /\b42\b/.test(String(text));
-  const status = refusal ? 'refusal' : !bashRan ? 'no-tool' : 'ok';
+  // A route that runs a command but leaves no file behind has not done the
+  // job: a run counted as ok here while smoke.txt was missing (2026-11-22),
+  // which is exactly the half-done work this test exists to catch.
+  const status = refusal ? 'refusal' : !bashRan ? 'no-tool' : !wrote ? 'no-file' : 'ok';
   const note = refusal
     ? refusal
     : `bash=${bashRan ? 'ok' : 'no'}, file=${wrote ? 'ok' : 'no'}, answer=${echoed ? 'ok' : 'off'}`;
