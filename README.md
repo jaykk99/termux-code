@@ -309,13 +309,17 @@ refusal or a tool call its wire format drops. `npm run test:live` does: it
 clones a real GitHub checkout into a temp dir, runs code there with the real
 tool runner, then asks every runnable uncensored route to run a shell command
 and write a file in that checkout, executing each tool call the model returns.
-A route fails on an error, a refusal, or never driving a tool. It reads keys
-from `.env`, and skips (exit 0) when no route is runnable:
+A route that errors, refuses, or answers without a tool call retries once on a
+fresh job and a fresh token before it counts as a failure, since volunteer
+workers rotate and a cold one reads like a broken route; `--no-retry` makes a
+single attempt count. It reads keys from `.env`, and reports no runnable route
+(exit 2) when none is gated on:
 
 ```sh
 npm run test:live                              # every runnable uncensored route
 node scripts/live-smoke.mjs --route horde/any  # just one
 node scripts/live-smoke.mjs --json --keep      # machine-readable, keep the checkout
+node scripts/live-smoke.mjs --no-retry         # one attempt per route, no retry
 ```
 
 ## Tools the local agent has

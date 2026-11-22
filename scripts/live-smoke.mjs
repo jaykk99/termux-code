@@ -40,11 +40,12 @@ const ROOT = path.join(HERE, '..');
 /* ---------- args ---------- */
 
 function parseArgs(argv) {
-  const out = { repo: 'jaykk99/termux-code', branch: null, route: null, steps: 4, json: false, keep: false };
+  const out = { repo: 'jaykk99/termux-code', branch: null, route: null, steps: 4, retry: true, json: false, keep: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--json') out.json = true;
     else if (a === '--keep') out.keep = true;
+    else if (a === '--no-retry') out.retry = false;
     else if (a === '--repo') out.repo = argv[++i];
     else if (a === '--branch') out.branch = argv[++i];
     else if (a === '--route') out.route = argv[++i];
@@ -128,8 +129,15 @@ function cloneRepo(repo, dir, branch) {
 /* ---------- report ---------- */
 
 function table(rows) {
-  const head = ['route', 'status', 'ms', 'tools', 'note'];
-  const body = rows.map((r) => [r.route, r.status, String(r.ms), r.tools.join(',') || '-', r.note]);
+  const head = ['route', 'status', 'ms', 'try', 'tools', 'note'];
+  const body = rows.map((r) => [
+    r.route,
+    r.status,
+    String(r.ms),
+    String(r.attempts ?? 1),
+    r.tools.join(',') || '-',
+    r.note,
+  ]);
   const widths = head.map((h, i) => Math.max(h.length, ...body.map((r) => r[i].length)));
   const line = (cells) => cells.map((c, i) => c.padEnd(widths[i])).join('  ').trimEnd();
   return [line(head), line(widths.map((w) => '─'.repeat(w))), ...body.map(line)].join('\n');
@@ -152,7 +160,7 @@ async function main() {
   const routes = args.route
     ? runnable.filter((m) => `${m.provider}/${m.id}` === args.route)
     : runnable;
-  const token = `SMOKE-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+  const token = newToken();
   const result = { ok: true, repo: null, checkout: {}, routes: [], token };
 
   if (aligned.length) {
@@ -218,7 +226,9 @@ async function main() {
     /* --- 3. one agent turn per uncensored route, tools executed for real --- */
     if (result.repo && routes.length) {
       for (const model of routes) {
-        result.routes.push(await smokeRoute(model, { dir, env, steps: args.steps, token, agent, runTool }));
+        result.routes.push(
+          await smokeRoute(model, { dir, env, steps: args.steps, agent, runTool, retry: args.retry }),
+        );
       }
     }
 
@@ -252,21 +262,26 @@ async function main() {
     if (!args.keep) rmSync(dir, { recursive: true, force: true });
     else console.log(`checkout kept at ${dir}`);
 
-    process.exit(result.ok ? 0 : result.repo || args.route ? 1 : 2);
+    process.exit(result.ok ? 0 : result.repo || args.route ? 1 : 2); // 2 = nothing runnable
   } finally {
     if (!args.keep && existsSync(dir)) rmSync(dir, { recursive: true, force: true });
   }
 }
 
+/** A fresh job marker per attempt, so a pass is never inherited from an earlier one. */
+function newToken() {
+  return `SMOKE-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+}
+
 /**
- * One route, one job: run a shell command and write a file in the checkout.
- * Every tool call the model returns is executed by lib/tools.mjs, with the
- * results fed back the way the real agent loop feeds them, until the model
- * answers without tools or the step budget runs out.
+ * One route, one attempt: run a shell command and write a file in the
+ * checkout. Every tool call the model returns is executed by lib/tools.mjs,
+ * with the results fed back the way the real agent loop feeds them, until
+ * the model answers without tools or the step budget runs out.
  */
-async function smokeRoute(model, { dir, env, steps, token, agent, runTool }) {
-  const route = `${model.provider}/${model.id}`;
+async function attemptRoute(model, { dir, env, steps, agent, runTool }) {
   const started = Date.now();
+  const token = newToken();
   const used = [];
   let text = '';
   let refusal = null;
@@ -316,7 +331,29 @@ async function smokeRoute(model, { dir, env, steps, token, agent, runTool }) {
   const note = refusal
     ? refusal
     : `bash=${bashRan ? 'ok' : 'no'}, file=${wrote ? 'ok' : 'no'}, answer=${echoed ? 'ok' : 'off'}`;
-  return { route, status, ms: Date.now() - started, tools: used, note, reply: oneLine(text).slice(0, 300) };
+  return { status, ms: Date.now() - started, tools: used, note, reply: oneLine(text).slice(0, 300) };
+}
+
+/**
+ * A cold worker answering without a tool call, a refusal, or an upstream
+ * error says nothing definitive about the route: volunteer workers rotate,
+ * and the first job often lands on one that has not warmed up (seen live —
+ * horde/any answered conversationally in 4s, then ran the command in 27s on
+ * the next job). One retry on a fresh job and a fresh token, and only then
+ * does the route count as broken.
+ */
+async function smokeRoute(model, ctx) {
+  const route = `${model.provider}/${model.id}`;
+  const first = await attemptRoute(model, ctx);
+  if (first.status === 'ok' || !ctx.retry) return { route, attempts: 1, ...first };
+  const second = await attemptRoute(model, ctx);
+  return {
+    route,
+    attempts: 2,
+    ...second,
+    ms: first.ms + second.ms,
+    note: `first attempt ${first.status}; ${second.note}`,
+  };
 }
 
 function oneLine(err) {
