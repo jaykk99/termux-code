@@ -13,6 +13,7 @@ import {
   describeTools,
   textProtocolPrompt,
   parseTextToolCalls,
+  parseToolArgs,
   formatToolResult,
   formatToolCall,
   toTextTranscript,
@@ -182,9 +183,46 @@ describe('parseTextToolCalls', () => {
     assert.equal(r.errors.length, 1);
   });
 
+  it('recovers a block whose arguments contain raw newlines', () => {
+    const r = parseTextToolCalls('<tool_call>{"name":"write_file","args":{"path":"a.js","content":"one\ntwo"}}</tool_call>');
+    assert.equal(r.calls.length, 1);
+    assert.deepEqual(r.calls[0].args, { path: 'a.js', content: 'one\ntwo' });
+    assert.deepEqual(r.errors, []);
+  });
+
   it('collapses runs of blank lines in the visible text', () => {
     const r = parseTextToolCalls('a\n\n\n\n<tool_call>{"name": "bash", "args": {}}</tool_call>\n\n\n\nb');
     assert.equal(r.text, 'a\n\nb');
+  });
+});
+
+describe('parseToolArgs', () => {
+  it('parses plain JSON', () => {
+    assert.deepEqual(parseToolArgs('{"path":"a.js"}'), { path: 'a.js' });
+    assert.deepEqual(parseToolArgs('{}'), {});
+  });
+
+  it('repairs raw newlines and tabs inside a string value', () => {
+    const raw = '{"path":"a.js","content":"one\ntwo\tend"}';
+    assert.throws(() => JSON.parse(raw), 'the input really is invalid JSON');
+    assert.deepEqual(parseToolArgs(raw), { path: 'a.js', content: 'one\ntwo\tend' });
+  });
+
+  it('leaves existing escapes untouched', () => {
+    assert.deepEqual(parseToolArgs('{"content":"a\\nb\\"c"}'), { content: 'a\nb"c' });
+  });
+
+  it('still handles fences, trailing commas and prose', () => {
+    assert.deepEqual(parseToolArgs('```json\n{"command":"ls",}\n```'), { command: 'ls' });
+    assert.deepEqual(parseToolArgs('the call: {"command":"ls"} thanks'), { command: 'ls' });
+    assert.deepEqual(parseToolArgs('{"command":"ls","content":"a\nb"}'), { command: 'ls', content: 'a\nb' });
+  });
+
+  it('returns null for junk, non-objects and empty input', () => {
+    assert.equal(parseToolArgs('not json at all'), null);
+    assert.equal(parseToolArgs('[1,2,3]'), null);
+    assert.equal(parseToolArgs(''), null);
+    assert.equal(parseToolArgs(null), null);
   });
 });
 

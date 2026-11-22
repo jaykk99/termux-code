@@ -92,6 +92,42 @@ describe('sendToErrorInbox()', () => {
   });
 });
 
+describe('complete() — OpenAI-shaped tool calls', () => {
+  const model = { auth: 'none', id: 'm', provider: 'x', providerLabel: 'X', url: 'https://example.invalid/v1/chat/completions' };
+  const respondWithCall = (argumentsJson) => () =>
+    jsonRes({
+      choices: [
+        {
+          message: {
+            role: 'assistant',
+            content: 'writing',
+            tool_calls: [{ id: 'c1', type: 'function', function: { name: 'write_file', arguments: argumentsJson } }],
+          },
+        },
+      ],
+    });
+
+  it('repairs arguments holding raw newlines and rewrites the stored call', async () => {
+    seen = [];
+    responder = respondWithCall('{"path":"a.js","content":"one\ntwo"}');
+    const reply = await complete(model, [{ role: 'user', content: 'go' }], {});
+    assert.deepEqual(reply.toolCalls, [{ id: 'c1', name: 'write_file', args: { path: 'a.js', content: 'one\ntwo' } }]);
+    // assistantMessage is replayed verbatim from history, so its arguments
+    // string must be valid JSON too — not the model's broken version.
+    assert.deepEqual(JSON.parse(reply.assistantMessage.tool_calls[0].function.arguments), {
+      path: 'a.js',
+      content: 'one\ntwo',
+    });
+  });
+
+  it('falls back to empty args for irrecoverable JSON instead of throwing', async () => {
+    seen = [];
+    responder = respondWithCall('not json at all');
+    const reply = await complete(model, [{ role: 'user', content: 'go' }], {});
+    assert.deepEqual(reply.toolCalls, [{ id: 'c1', name: 'write_file', args: {} }]);
+  });
+});
+
 describe('complete() — Cohere dispatch', () => {
   const cohereModel = { id: 'command-a', provider: 'cohere', providerLabel: 'Cohere', auth: 'cohere', url: 'https://api.cohere.com/v2/chat' };
 
