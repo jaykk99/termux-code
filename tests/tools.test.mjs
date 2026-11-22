@@ -84,6 +84,32 @@ describe('grep tool', () => {
   });
 });
 
+describe('malformed tool arguments', () => {
+  it('bash takes argv arrays by joining them instead of throwing', async () => {
+    const out = await runTool('bash', { command: ['echo', 'hello', 'world'] }, ctx());
+    assert.ok(out.startsWith('exit 0'), out);
+    assert.match(out, /hello world/);
+  });
+
+  it('bash answers a non-string command with what to send, never a TypeError', async () => {
+    // Live 2026-11-22: the model sent a non-string command, exec threw "The
+    // \"command\" argument must be of type string", and the same call came
+    // back three times because that message says nothing about the fix.
+    for (const command of [42, { cmd: 'ls' }, null, undefined]) {
+      const out = await runTool('bash', { command }, ctx());
+      assert.match(String(out), /bash needs "command" as one string of shell text/, String(out));
+      assert.ok(!/must be of type string/.test(out), String(out));
+    }
+  });
+
+  it('a non-string path is answered instead of thrown by fs', async () => {
+    assert.match(String(await runTool('read_file', { path: ['real.txt'] }, ctx())), /path must be a string/);
+    assert.match(String(await runTool('write_file', { path: 7, content: 'x' }, ctx())), /path must be a string/);
+    assert.match(String(await runTool('list_dir', { path: {} }, ctx())), /path must be a string/);
+    assert.match(String(await runTool('grep', { pattern: ['needle'] }, ctx())), /pattern must be a string/);
+  });
+});
+
 describe('bash tool stdin', () => {
   it('a bare grep with no file target returns at once, not after the 60s timeout', async () => {
     const started = Date.now();
