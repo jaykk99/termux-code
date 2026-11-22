@@ -181,7 +181,13 @@ describe('Horde / completion-style helpers', () => {
 
   it('cutAtNextTurn stops where the model starts writing the user or a fake result', () => {
     assert.equal(cutAtNextTurn('answer\n### User:\nmore'), 'answer');
+    assert.equal(cutAtNextTurn('answer\nUser: more'), 'answer');
     assert.equal(cutAtNextTurn('<tool_call>{}</tool_call>\n<tool_result name="x">made up'), '<tool_call>{}</tool_call>');
+  });
+
+  it('cutAtNextTurn drops a fabricated assistant header (seen live on a Horde worker)', () => {
+    assert.equal(cutAtNextTurn('answer\n### Assistant:\nmore'), 'answer');
+    assert.equal(cutAtNextTurn('### Assistant:\nthe real answer'), 'the real answer');
   });
 
   it('the protocol prompt lists the editing tools', () => {

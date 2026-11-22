@@ -191,6 +191,45 @@ describe('callHorde() via complete()', () => {
     assert.equal(reply.text, 'second try answered');
   });
 
+  it('resubmits once when a cold worker replays the prompt instead of answering', async () => {
+    // Live 2026-11-22: a worker returned the prompt's own tail as its
+    // "generation", which used to be handed to the user as the reply.
+    const submits = [];
+    responder = async (url, options) => {
+      if (url.includes('/status/models')) return jsonRes([{ name: 'koboldcpp/L3-8B-Stheno-v3.2-GGUF', count: 1, eta: 0 }]);
+      if (url.endsWith('/async')) {
+        submits.push(JSON.parse(options.body));
+        return jsonRes({ id: submits.length === 1 ? 'job-echo' : 'job-good' });
+      }
+      if (url.includes('/status/job-echo')) {
+        return jsonRes({ done: true, generations: [{ text: submits[0].prompt.slice(0, 400) }] });
+      }
+      return jsonRes({ done: true, generations: [{ text: 'second try answered' }] });
+    };
+    const reply = await complete(hordeModel, [{ role: 'user', content: 'say hi' }], {});
+    assert.equal(submits.length, 2);
+    assert.equal(reply.text, 'second try answered');
+  });
+
+  it('fails after the resubmit also replays the prompt instead of looping', async () => {
+    let submits = 0;
+    let lastPrompt = '';
+    responder = async (url, options) => {
+      if (url.includes('/status/models')) return jsonRes([{ name: 'koboldcpp/L3-8B-Stheno-v3.2-GGUF', count: 1, eta: 0 }]);
+      if (url.endsWith('/async')) {
+        submits += 1;
+        lastPrompt = JSON.parse(options.body).prompt;
+        return jsonRes({ id: `job-echo-${submits}` });
+      }
+      return jsonRes({ done: true, generations: [{ text: lastPrompt.slice(0, 300) }] });
+    };
+    await assert.rejects(
+      () => complete(hordeModel, [{ role: 'user', content: 'say hi' }], {}),
+      /Horde: job finished by replaying the prompt instead of answering/,
+    );
+    assert.equal(submits, 2);
+  });
+
   it('fails after the resubmit also finishes empty instead of looping', async () => {
     let submits = 0;
     responder = async (url) => {
