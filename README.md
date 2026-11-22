@@ -295,7 +295,7 @@ across restarts (`~/.termux-code/history`, last 200 commands).
 
 ## Tests
 
-`npm test` runs the `node:test` battery in `tests/` (667 tests): gateway HTTP
+`npm test` runs the `node:test` battery in `tests/` (736 tests): gateway HTTP
 helpers, the model registry and its trusted resolution, the failover chain and
 circuit breaker, session persistence, the CLI argument parser, and an
 end-to-end one-shot run against a stub gateway — including the check that an
@@ -303,6 +303,20 @@ unattended run declines a shell command and tells the model so. The
 uncovered core modules have suites too: context compaction, plan-and-verify,
 the text tool-calling protocol, the MCP client, unified-diff patching, the
 TUI primitives, gateway-tool dispatch, the audit log, and the token store.
+
+Those suites stub `fetch`, so they cannot catch a route that answers with a
+refusal or a tool call its wire format drops. `npm run test:live` does: it
+clones a real GitHub checkout into a temp dir, runs code there with the real
+tool runner, then asks every runnable uncensored route to run a shell command
+and write a file in that checkout, executing each tool call the model returns.
+A route fails on an error, a refusal, or never driving a tool. It reads keys
+from `.env`, and skips (exit 0) when no route is runnable:
+
+```sh
+npm run test:live                              # every runnable uncensored route
+node scripts/live-smoke.mjs --route horde/any  # just one
+node scripts/live-smoke.mjs --json --keep      # machine-readable, keep the checkout
+```
 
 ## Tools the local agent has
 
