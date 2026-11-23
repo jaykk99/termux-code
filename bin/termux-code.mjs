@@ -37,7 +37,7 @@ import { REASONING_MODES, reasoningPolicy, withReasoningNote } from '../lib/reas
 import { memoryNote, withMemory } from '../lib/frontier.mjs';
 import { discoverReconSettings, runReconTool, validateReconUrl, withReconHint } from '../lib/recon.mjs';
 import { startLocalRecon } from '../lib/recon-service.mjs';
-import { runDevice } from '../lib/device.mjs';
+import { runDevice, parseDeviceCommand } from '../lib/device.mjs';
 
 const CONFIG_DIR = path.join(os.homedir(), '.termux-code');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
@@ -695,6 +695,8 @@ export const HELP = [
   ['/recon active on', 'explicitly permit active scans for this session'],
   ['/browser', 'check browser access, Chromium and gateway fallback'],
   ['/device', 'inspect Android/Termux:API command availability and permission setup'],
+  ['/device battery', 'read battery; direct commands also work without LLM tools'],
+  ['/device torch on|off', 'toggle flashlight with on-phone confirmation'],
   ['/exit', 'quit'],
 ];
 
@@ -1606,16 +1608,24 @@ async function main(workspaceOverride = null) {
       continue;
     }
 
-    if (input === '/device' || input === '/device status') {
-      const status = JSON.parse(await runDevice({ action: 'status' }, { root }));
-      const available = Object.entries(status.actions).filter(([,ok])=>ok).map(([name])=>name);
-      const missing = Object.entries(status.actions).filter(([,ok])=>!ok).map(([name])=>name);
-      console.log('\n' + box([
-        (status.termuxApiCommandsInstalled ? C.green('Termux:API commands found') : C.amber('No Termux:API commands found')),
-        '  Available: ' + (available.join(', ') || '(none)'),
-        '  Missing: ' + (missing.join(', ') || '(none)'),
-        '', C.dim(status.integration), C.dim(status.permissions), C.dim(status.deviceControl),
-      ], { title: 'Android device access' }) + '\n');
+    if (input === '/device' || input.startsWith('/device ')) {
+      const request = parseDeviceCommand(input.slice('/device'.length));
+      if (request.error) {
+        console.log(C.dim('  ' + request.error + '\n'));
+      } else if (request.action === 'status') {
+        const status = JSON.parse(await runDevice(request, { root }));
+        const available = Object.entries(status.actions).filter(([,ok])=>ok).map(([name])=>name);
+        const missing = Object.entries(status.actions).filter(([,ok])=>!ok).map(([name])=>name);
+        console.log('\n' + box([
+          (status.termuxApiCommandsInstalled ? C.green('Termux:API commands found') : C.amber('No Termux:API commands found')),
+          '  Available: ' + (available.join(', ') || '(none)'),
+          '  Missing: ' + (missing.join(', ') || '(none)'),
+          '', C.dim(status.integration), C.dim(status.permissions), C.dim(status.deviceControl),
+        ], { title: 'Android device access' }) + '\n');
+      } else {
+        const result = await runDevice(request, { root, approve: (title, detail) => approve(rl, title, detail) });
+        console.log('\n' + box(wrap(result, width() - 6), { title: 'Android: ' + request.action }) + '\n');
+      }
       continue;
     }
 
