@@ -28,8 +28,9 @@ bash local-run/termux-start.sh    # leave running
 
 The API runs on port **8000**. The UI runs on **3000**, which is *not* the
 port to configure in the agent. If ReconAnything is instead running on Linux,
-run `bash local-run/linux-start.sh` there, expose the API on a private
-network interface, and use its reachable LAN address in the command below.
+run `RECON_BIND_HOST=0.0.0.0 bash local-run/linux-start.sh` there to
+opt into private-LAN API access (ReconAnything PR #211 adds the bind setting),
+then use its reachable LAN address in the command below.
 `127.0.0.1` is only correct if both apps run on the same phone.
 
 ## Configure once inside termux-code
