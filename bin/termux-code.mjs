@@ -27,6 +27,7 @@ import { cleanMessages, trimForGateway } from '../lib/history.mjs';
 import { C, box, banner, toolHeader, toolResult, spinner, pick, wrap, width, renderMarkdown } from '../lib/tui.mjs';
 import { isRefusalResponse } from '../lib/refusal.mjs';
 import { parseArgs, USAGE, approvalModeFor, deniedNote, pickModel, withPlanNote } from '../lib/cli-args.mjs';
+import { connectAll, loadMcpConfig, parseQualified, runMcpTool, toolsForOpenAI as mcpToolsForOpenAI, toolsForAnthropic as mcpToolsForAnthropic } from '../lib/mcp.mjs';
 
 const CONFIG_DIR = path.join(os.homedir(), '.termux-code');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
@@ -77,8 +78,14 @@ function gatewayHeaders(cfg) {
  */
 export function defaultModel(models) {
   return (
+    // A keyed route beats the volunteer queue. Horde workers are 1B–35B with a
+    // 512-token output cap, so seating one while a real uncensored model is
+    // configured (OpenRouter, Venice, Naga, DeepInfra — any key in the pool) is
+    // the difference between a chat toy and something that can hold a
+    // high-level coding task together.
+    models.find((m) => m.provider !== 'horde' && isUncensoredModel(m) && (m.auth === 'bearer' || m.auth === 'none')) ||
+    models.find((m) => m.provider !== 'horde' && isUncensoredModel(m)) ||
     models.find((m) => m.provider === 'horde' && isUncensoredModel(m)) ||
-    models.find((m) => isUncensoredModel(m) && (m.auth === 'bearer' || m.auth === 'none')) ||
     models.find((m) => isUncensoredModel(m)) ||
     null
   );
@@ -496,6 +503,10 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
               args: call.args,
             });
           }
+        } else if (parseQualified(call.name)) {
+          // A remote MCP tool: approved like any other outbound action, then
+          // run through lib/mcp.mjs against the server that owns the name.
+          result = await runMcpTool(mcpServers, call.name, call.args, (d, detail) => approve(rl, d, detail));
         } else {
           result = await runTool(call.name, call.args, {
             root,
@@ -648,6 +659,22 @@ async function main() {
     if (typeof value === 'string' && value && !process.env[name]) process.env[name] = value;
   }
 
+  // MCP servers: a project's .mcp.json plus mcpServers in the CLI config,
+  // each { url, headers? }. Connected once at startup; a server that is down
+  // is named once and skipped rather than stopping the CLI.
+  const mcpConfig = await loadMcpConfig(root, cfg.mcpServers).catch(() => ({}));
+  const mcpServers = Object.keys(mcpConfig).length ? await connectAll(mcpConfig).catch(() => []) : [];
+  const mcpLive = mcpServers.filter((s) => s.ready);
+  const mcpToolsOAI = mcpToolsForOpenAI(mcpLive);
+  const mcpToolsAnthropic = mcpToolsForAnthropic(mcpLive);
+  if (mcpServers.length && !(args.json && oneShot)) {
+    console.log(
+      mcpLive.length
+        ? C.dim(`  [mcp] ${mcpLive.map((s) => `${s.name} (${s.tools.length} tools)`).join(', ')}\n`)
+        : C.red(`  [mcp] no server connected: ${mcpServers.map((s) => `${s.name}: ${s.error}`).join('; ')}\n`)
+    );
+  }
+
   const boot = spinner('Loading models');
   let models = await loadCatalogue(cfg);
   boot.stop();
@@ -776,7 +803,18 @@ async function main() {
   // nearly always a filter the model does not have.
   const chainOpts = { verbose: state.verbose, refusalRetry: true };
     const gatewayTurn = () => runFailoverTurn(model, models, msgs, tracker, (m) => completeViaGateway(cfg.gateway, m, msgs, cfg.gatewayToken), sessionBadModels, chainOpts);
-    const directTurn = () => runFailoverTurn(model, models, msgs, tracker, (m) => complete(m, msgs), sessionBadModels, chainOpts);
+    // MCP tools are passed in the shape the model's wire format expects; the
+    // gateway path gets none because the gateway has its own tool list.
+    const directTurn = () =>
+      runFailoverTurn(
+        model,
+        models,
+        msgs,
+        tracker,
+        (m) => complete(m, msgs, process.env, m.auth === 'anthropic' ? mcpToolsAnthropic : mcpToolsOAI),
+        sessionBadModels,
+        chainOpts
+      );
     if (!cfg.gateway || gatewayDead) return directTurn();
     try {
       return await gatewayTurn();

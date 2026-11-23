@@ -51,6 +51,20 @@ describe('hordePrompt() — the last instruction', () => {
   });
 });
 
+describe('textBrief() with MCP tools', () => {
+  it('caps the extra tools so a small model is not drowned by a big server', () => {
+    const extra = Array.from({ length: 12 }, (_, i) => ({
+      type: 'function',
+      function: { name: `mcp__srv__tool${i}`, description: 'x', parameters: { type: 'object', properties: {} } },
+    }));
+    const brief = textBrief(extra);
+    assert.match(brief, /mcp__srv__tool0/);
+    assert.match(brief, /\+4 more MCP tool/);
+    assert.doesNotMatch(brief, /mcp__srv__tool11/);
+    assert.ok(brief.length < 1600, `brief is ${brief.length} chars`);
+  });
+});
+
 describe('isDegenerateRepeat()', () => {
   const loop = Array.from({ length: 5 }, () => 'Never describe the environment, and never mention tool calls.').join(' ');
 

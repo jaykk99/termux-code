@@ -138,6 +138,14 @@ Termux command page. The chat itself lives in Termux on the phone.
   workspace, key in `COMPOSIO_API_KEY`), `run_terminal` (a sandboxed
   shell on the host — no provider keys in its environment), `fetch_url`
   and `web_search`. Every tool call is audit-logged to `.data/audit.log`.
+- **MCP servers.** A workspace `.mcp.json` (Claude's file and key, so an
+  existing config works unchanged) and/or `mcpServers` in
+  `~/.termux-code/config.json` are connected at startup — each entry
+  `{ "url": "https://…", "headers": { … } }`. Their tools appear to the model
+  as `mcp__<server>__<tool>`, every call is approval-gated (a remote server is
+  code this CLI cannot inspect), and a server that is down is named once and
+  skipped instead of blocking the session. The small-model prompt lists at most
+  eight MCP tools, with the rest as a count.
 - **Sub-agents and project checks.** `task` spawns a sub-agent with a fresh
   context and its own step budget (research, read a repo, draft code) and
   returns only its report, so a side quest does not fill the main
@@ -376,7 +384,7 @@ across restarts (`~/.termux-code/history`, last 200 commands).
 
 ## Tests
 
-`npm test` runs the `node:test` battery in `tests/` (823 tests): gateway HTTP
+`npm test` runs the `node:test` battery in `tests/` (825 tests): gateway HTTP
 helpers, the model registry and its trusted resolution, the failover chain and
 circuit breaker, session persistence, the CLI argument parser, and an
 end-to-end one-shot run against a stub gateway — including the check that an

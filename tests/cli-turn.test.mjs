@@ -52,6 +52,17 @@ describe('defaultModel() — nothing aligned is ever seated', () => {
     assert.equal(defaultModel([aligned, horde]).provider, 'horde');
   });
 
+  it('prefers a keyed uncensored route over the Horde queue', () => {
+    // The queue's workers are 1B-35B with a 512-token cap: a configured
+    // OpenRouter/Venice/Naga model must win the seat, or "high-level coding"
+    // never gets a fair chance.
+    const horde = M('any', 'horde');
+    const big = { id: 'sao10k/l3.1-euryale-70b', provider: 'openrouter', auth: 'bearer', free: false, source: 'direct', label: 'Euryale 70B' };
+    assert.equal(defaultModel([horde, big]).provider, 'openrouter');
+    assert.equal(defaultModel([big, horde]).provider, 'openrouter');
+    assert.equal(defaultModel([horde]).provider, 'horde');
+  });
+
   it('picks an uncensored route over a free aligned one anywhere in the list', () => {
     const unc = { id: 'dolphin', provider: 'naga', auth: 'bearer', free: false, source: 'direct', label: 'Dolphin uncensored' };
     assert.equal(defaultModel([aligned, unc]).id, 'dolphin');
