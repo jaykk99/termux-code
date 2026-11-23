@@ -358,7 +358,7 @@ export async function runFailoverTurn(model, models, messages, tracker, complete
  *   summarize: (prompt) => Promise<string> — for context compaction
  * }
  */
-async function turn(model, messages, rl, root, completeFn, gateway = {}, agent = {}) {
+export async function turn(model, messages, rl, root, completeFn, gateway = {}, agent = {}) {
   const changed = new Set();
   let verifyAttempts = 0;
   let protocolRetries = 0;
@@ -456,6 +456,10 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
         continue;
       }
       // The model thinks it's done. Check its work if it changed anything.
+      if (progress.coding && !progress.changed && !progress.inspected) {
+        console.log(C.red('  [workflow] No project inspection or implementation occurred; task is incomplete.'));
+        return null;
+      }
       // Every exit below returns the final answer so a one-shot run can
       // report it (and set its exit code); null means the turn failed.
       const v = agent.verify;
@@ -517,9 +521,9 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
         } else if (parseQualified(call.name)) {
           // A remote MCP tool: approved like any other outbound action, then
           // run through lib/mcp.mjs against the server that owns the name.
-          result = await runMcpTool(agent.mcpServers || [], call.name, call.args, (d, detail) => approve(rl, d, detail));
+          result = await (agent.mcpRunner || runMcpTool)(agent.mcpServers || [], call.name, call.args, (d, detail) => approve(rl, d, detail));
         } else {
-          result = await runTool(call.name, call.args, {
+          result = await (agent.toolRunner || runTool)(call.name, call.args, {
             root,
             approve: (d, detail) => approve(rl, d, detail),
             // The task tool: a sub-agent with a fresh context (set up below).
