@@ -21,6 +21,8 @@ import {
   toolResult,
   spinner,
   pick,
+  renderMarkdown,
+  inlineSegments,
 } from '../lib/tui.mjs';
 
 describe('width', () => {
@@ -195,6 +197,57 @@ describe('pick (non-TTY fallback)', () => {
   it('honours the current marker without crashing', async () => {
     const n = await pick(items, { current: 1, ask: async () => '3' });
     assert.equal(n, 2);
+  });
+});
+
+describe('renderMarkdown', () => {
+  const plain = (s) => strip(s);
+
+  it('drops ** and ` markers and keeps the words', () => {
+    const out = renderMarkdown('Use `npm test` when **everything** is staged.', 60);
+    assert.equal(plain(out), 'Use npm test when everything is staged.');
+    assert.ok(out.includes('\x1b[38;5;110m'), 'inline code is styled');
+    assert.ok(out.includes('\x1b[1m'), 'bold is styled');
+  });
+
+  it('keeps a fenced block exactly as written, fence lines gone', () => {
+    const out = renderMarkdown('before\n```js\nconst a = 1;\n  indented();\n```\nafter', 40);
+    assert.doesNotMatch(plain(out), /```/);
+    assert.match(plain(out), /^ {4}indented\(\);$/m);
+    assert.match(plain(out), /before/);
+    assert.match(plain(out), /after/);
+  });
+
+  it('turns list markers into a phone-sized bullet, keeping numbers', () => {
+    const out = plain(renderMarkdown('- one\n- two\n1. first\n2. second', 40));
+    assert.match(out, /^• one$/m);
+    assert.match(out, /^1\. first$/m);
+  });
+
+  it('styles headings and wraps prose inside the width', () => {
+    const out = renderMarkdown('# Plan\n' + 'word '.repeat(30), 30);
+    assert.match(plain(out), /^Plan$/m);
+    for (const line of plain(out).split('\n')) assert.ok(line.length <= 30, line);
+  });
+
+  it('closes every style it opens, line by line, so colour cannot bleed', () => {
+    const out = renderMarkdown('a **bold** line\n`code` next\n# heading', 40);
+    for (const line of out.split('\n')) {
+      let open = 0;
+      for (const m of line.matchAll(/\x1b\[[0-9;]*m/g)) open += m[0] === '\x1b[0m' ? -1 : 1;
+      assert.equal(open, 0, JSON.stringify(line));
+    }
+  });
+
+  it('leaves an empty or blank answer empty', () => {
+    assert.equal(renderMarkdown(''), '');
+    assert.equal(renderMarkdown('   \n\n'), '');
+  });
+
+  it('splits inline markup into styled segments', () => {
+    const segs = inlineSegments('a **b** c');
+    assert.deepEqual(segs.map((s) => s.text), ['a ', 'b', ' c']);
+    assert.equal(segs[1].style, C.bold);
   });
 });
 

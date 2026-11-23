@@ -235,6 +235,14 @@ one-shot run, because a confirmation dialog between you and your own phone
 is not a safety feature. If you ever want the older guard back for one
 run, pass `--ask`; without a terminal that mode reads only.
 
+**It answers like an engineer, not a help desk.** The system prompt asks for
+first-person, direct answers — no preamble, no disclaimers, no moralising —
+and replies are rendered as Markdown on the way to the screen: bold, inline
+code, fenced code kept exactly as written, bullets sized to the phone's
+columns, instead of one flattened wall of text. The spinner names who is
+taking the turn (`Thinking · horde/any 12s`), and a reply that comes back
+empty says so instead of leaving a blank line.
+
 **Quiet by default.** A turn that walks several dead providers reports one
 line (`[chain] 3 providers failed, answered by horde/...`) instead of a
 wall of failures, and the full per-provider detail is behind `--verbose`
@@ -295,7 +303,7 @@ across restarts (`~/.termux-code/history`, last 200 commands).
 
 ## Tests
 
-`npm test` runs the `node:test` battery in `tests/` (736 tests): gateway HTTP
+`npm test` runs the `node:test` battery in `tests/` (788 tests): gateway HTTP
 helpers, the model registry and its trusted resolution, the failover chain and
 circuit breaker, session persistence, the CLI argument parser, and an
 end-to-end one-shot run against a stub gateway — including the check that an
@@ -321,6 +329,33 @@ node scripts/live-smoke.mjs --route horde/any  # just one
 node scripts/live-smoke.mjs --json --keep      # machine-readable, keep the checkout
 node scripts/live-smoke.mjs --no-retry         # one attempt per route, no retry
 ```
+
+### Use your own repo for a task
+
+The clone is a real workspace, not only a smoke target: `--task` runs your
+instruction in it instead of the smoke proof, with the real tool runner writing
+the changes, and `--push` commits what the model actually changed onto a new
+`live/<route>-<token>` branch and pushes that branch to the repo, so you review
+the diff before it goes anywhere near `main`. `--push` needs `GITHUB_TOKEN` —
+the same one the clone uses, passed through git's `GIT_CONFIG_*` environment,
+never argv.
+
+```sh
+node scripts/live-smoke.mjs --repo you/thing --route horde/any \
+  --task "add a --dry-run flag to bin/thing.mjs and document it in README.md"
+
+node scripts/live-smoke.mjs --repo you/thing --route horde/any \
+  --task "add a --dry-run flag to bin/thing.mjs" --push
+```
+
+A task counts as passed only when the model called a tool **and** `git status`
+shows the checkout changed: talking about the change is `no-tool`, reading
+files and stopping is `no-write`, declining is `refusal`. One route runs per
+task (the `--route` you name, else the first runnable one) so the diff and the
+branch belong to the model that made them, and a retry resets the checkout
+first so attempt one's half-written files cannot make attempt two look like it
+wrote. Exit `0` means the task landed, `1` a route, the checkout, a push or the
+flags failed, `2` nothing runnable.
 
 ## Tools the local agent has
 
@@ -350,7 +385,10 @@ Gemini, Cohere, Horde and HF, plus any OpenAI-shaped endpoint that rejects
 the `tools` field, drive the same tools through a text protocol
 (`lib/text-tools.mjs`): the model writes
 `<tool_call>{"name": "...", "args": {...}}</tool_call>` and gets
-`<tool_result>` blocks back. These models also now see the whole
+`<tool_result>` blocks back. A call written as a bare
+`{"name": "...", "args": {...}}` object with no wrapper is taken too, when
+the name is a real tool — small workers drop the tags even when the example
+is right in front of them, and those calls used to be thrown away. These models also now see the whole
 conversation, tool results included, not just the last message.
 Through a gateway they get your connected apps too: `composio_search` and
 `composio_execute` are described in the same protocol and run server-side,

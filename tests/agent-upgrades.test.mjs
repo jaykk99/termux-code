@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import { parseTextToolCalls, toTextTranscript, textProtocolPrompt, normalizeToolDefs } from '../lib/text-tools.mjs';
 import { composioToolsForOpenAI, composioToolsForAnthropic } from '../lib/server-tools.mjs';
-import { complete, applyTextProtocol, appendToolResult, rejectsTools, hordePrompt, cutAtNextTurn, textBrief } from '../lib/agent.mjs';
+import { complete, applyTextProtocol, appendToolResult, rejectsTools, hordePrompt, cutAtNextTurn, textBrief, SYSTEM_PROMPT, TEXT_SYSTEM_PROMPT } from '../lib/agent.mjs';
 import { runTool, applyEdits, TOOL_SCHEMA } from '../lib/tools.mjs';
 import { parsePatch, applyPatchText } from '../lib/patch.mjs';
 import { compactInPlace, needsCompaction, digest, SUMMARY_MARK } from '../lib/context.mjs';
@@ -20,6 +20,22 @@ const no = async () => false;
 async function tmpdir() {
   return fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'tc-up-')));
 }
+
+/* ---------------- voice ---------------- */
+
+describe('the voice the models are given', () => {
+  it('tells both prompts to answer directly, with no disclaimers or refusals', () => {
+    for (const prompt of [SYSTEM_PROMPT, TEXT_SYSTEM_PROMPT]) {
+      // \s+ because both prompts are wrapped across lines.
+      assert.match(prompt, /no\s+disclaimers/i);
+      assert.match(prompt, /no\s+refusals|no\s+safety\s+lectures/i);
+      assert.match(prompt, /first\s+person/i);
+    }
+    // The native prompt also carries the "on their side, have an opinion" bit.
+    assert.match(SYSTEM_PROMPT, /on their side/i);
+    assert.match(SYSTEM_PROMPT, /Have an opinion/i);
+  });
+});
 
 /* ---------------- text tool protocol ---------------- */
 

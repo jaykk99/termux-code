@@ -24,7 +24,7 @@ import { listModels, directModels } from '../lib/models.mjs';
 import { FailureTracker, completeWithFailover, FailoverError, chainFailureLines, gatewayFallbackReason, isUncensoredModel, oneLine, renderError } from '../lib/failover.mjs';
 import { SessionStore, deriveTitle } from '../lib/sessions.mjs';
 import { cleanMessages, trimForGateway } from '../lib/history.mjs';
-import { C, box, banner, toolHeader, toolResult, spinner, pick, wrap, width } from '../lib/tui.mjs';
+import { C, box, banner, toolHeader, toolResult, spinner, pick, wrap, width, renderMarkdown } from '../lib/tui.mjs';
 import { parseArgs, USAGE, approvalModeFor, deniedNote, pickModel } from '../lib/cli-args.mjs';
 
 const CONFIG_DIR = path.join(os.homedir(), '.termux-code');
@@ -342,7 +342,10 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
       }
     }
 
-    const spin = spinner(step === 0 ? 'Thinking' : 'Working');
+    // Name the brain answering: on a phone with a volunteer queue behind it,
+    // "Thinking" for 40s says nothing, "Thinking · horde/any 40s" says why.
+    const who = `${model.provider}/${model.id}`.slice(0, 22);
+    const spin = spinner(`${step === 0 ? 'Thinking' : 'Working'} · ${who}`);
     let reply;
     try {
       reply = await completeFn();
@@ -356,7 +359,15 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
               colour: C.red,
             })
         );
-        console.log(C.dim('  Providers cool down for 10 minutes after repeated failures.\n'));
+        // "empty reply" is what a cold volunteer worker looks like, not a
+        // broken setup: say which it is instead of leaving the user to guess.
+        console.log(
+          C.dim(
+            /empty reply/i.test(String(err.message))
+              ? '  A cold worker answered with nothing — send that again in a moment, or /model to pick another brain.\n'
+              : '  Providers cool down for 10 minutes after repeated failures.\n',
+          ),
+        );
       } else {
         console.log('\n' + box(wrap(oneLine(err.message, 400), width() - 6), { title: C.red('error'), colour: C.red }));
         console.log(C.dim('  /model to switch, or check the key for this provider.\n'));
@@ -366,7 +377,10 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
     spin.stop();
 
     if (reply.text) {
-      console.log('\n' + wrap(reply.text, width() - 2).join('\n'));
+      console.log('\n' + renderMarkdown(reply.text, width() - 2));
+    } else if (!reply.toolCalls.length) {
+      // A blank turn used to end the message with nothing on screen at all.
+      console.log('\n' + C.dim('(empty reply — the model returned nothing; ask again, or /model for a different brain)'));
     }
     messages.push(reply.assistantMessage);
 
@@ -735,6 +749,7 @@ async function main() {
       })
     );
     console.log('  ' + sessionHeadline(session));
+    console.log(C.dim('  say what you want — "fix the failing test", "what does this repo do?"'));
     console.log(C.dim('  /help for commands · ctrl-c to quit\n'));
   }
 
@@ -837,7 +852,7 @@ async function main() {
         });
         spin.stop();
         console.log('\n' + toolHeader('error-inbox', 'agent'));
-        console.log(wrap(reply, width() - 2).join('\n') + '\n');
+        console.log(renderMarkdown(reply, width() - 2) + '\n');
       } catch (err) {
         spin.stop();
         console.log('\n' + box(wrap(err.message, width() - 6), { title: C.red('error'), colour: C.red }) + '\n');
