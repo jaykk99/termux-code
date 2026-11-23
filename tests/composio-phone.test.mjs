@@ -60,6 +60,7 @@ test('local phone tools: filesystem, editing, web search and the browser, no Com
     'read_file',
     'read_files',
     'read_range',
+    'recon_anything',
     'remember',
     'repo_map',
     'run_tests',
