@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { selectEffort, effortConfig, effortInstruction } from '../lib/effort.mjs';
+import { callWithTransientRetry } from '../lib/failover.mjs';
 
 test('automatic effort tracks prompt complexity', () => {
   assert.equal(selectEffort('hi'), 'fast');
@@ -26,4 +27,13 @@ test('fast has smaller failover and backoff budget, deep is more deliberate', ()
   assert.equal(deep.transientRetries, 1);
   assert.match(effortInstruction('deep'), /checks/);
   assert.match(effortInstruction('fast'), /promptly/);
+});
+
+test('fast mode skips transient retry on a failed provider', async () => {
+  let calls=0;
+  await assert.rejects(() => callWithTransientRetry({provider:'mock',id:'m'},[],async()=>{
+    calls++;
+    throw new Error('fetch failed: timeout');
+  }, effortConfig('fast')), /timeout/);
+  assert.equal(calls, 1);
 });
