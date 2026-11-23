@@ -103,6 +103,8 @@ async function loadCatalogue(cfg) {
     try {
       const res = await fetch(cfg.gateway.replace(/\/$/, '') + '/api/models', {
         headers: gatewayHeaders(cfg),
+        // A dead gateway must not hold startup hostage; local discovery can proceed.
+        signal: AbortSignal.timeout(10_000),
       });
       if (res.ok) {
         const data = await res.json();
@@ -275,6 +277,8 @@ export async function completeViaGateway(gateway, model, messages, gatewayToken)
       ...(gatewayToken ? { Authorization: `Bearer ${gatewayToken}` } : {}),
     },
     body: JSON.stringify({ model, messages: trimForGateway(messages) }),
+    // Failover can try another route when a hosted function stalls.
+    signal: AbortSignal.timeout(50_000),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.error) {
