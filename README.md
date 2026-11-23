@@ -30,9 +30,11 @@ site, scan a domain, or inspect findings, it can use the linked
 [`recon-anything`](https://github.com/jaykk99/recon-anything) backend and return
 the results inside the same chat. No additional AI provider or MCP server needed.
 
-Start the ReconAnything backend first; then in `termux-code` run
-`/recon url http://127.0.0.1:8000`, `/recon code <access-code>` and
-`/recon` to verify connectivity. The agent defaults to passive scans and
+Start the ReconAnything backend first; then run `/recon` to check it.
+On the same Android device, the default API URL and local setup-generated access
+code are discovered automatically from common checkout locations. For a remote
+Linux backend, configure `/recon url http://192.168.1.30:8000` and
+`/recon code <access-code>`. The agent defaults to passive scans and
 requires target authorization; active mode requires `/recon active on` in
 each session.
 
