@@ -28,6 +28,7 @@ import { C, box, banner, toolHeader, toolResult, spinner, pick, wrap, width, ren
 import { isRefusalResponse } from '../lib/refusal.mjs';
 import { parseArgs, USAGE, approvalModeFor, deniedNote, pickModel, withPlanNote } from '../lib/cli-args.mjs';
 import { connectAll, loadMcpConfig, parseQualified, runMcpTool, toolsForOpenAI as mcpToolsForOpenAI, toolsForAnthropic as mcpToolsForAnthropic } from '../lib/mcp.mjs';
+import { projectInstructions, applyProjectInstructions } from '../lib/project-context.mjs';
 
 const CONFIG_DIR = path.join(os.homedir(), '.termux-code');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
@@ -749,6 +750,11 @@ async function main() {
   const messages = cleanedSession.length
     ? cleanedSession
     : [{ role: 'system', content: SYSTEM_PROMPT }];
+  // Always use the active workspace's memory, not stale system instructions
+  // embedded in an older session from another working directory.
+  const projectNote = await projectInstructions(root);
+  const refreshProjectContext = () =>
+    applyProjectInstructions(messages, withPlanNote(SYSTEM_PROMPT, state?.think || false), projectNote);
 
   /** Persist the conversation without ever breaking the loop. A failed
    *  save is no longer silent: if the phone can't write, Jay should know
@@ -781,6 +787,7 @@ async function main() {
    * the default: a failed provider is a detail, not news.
    */
   const state = { verbose: Boolean(args.verbose), think: Boolean(args.think) };
+  refreshProjectContext();
   // Plan-first: the note rides on the system prompt, so every turn of the
   // session sees it — including the tool results the model reads back.
   if (state.think && messages[0]?.role === 'system') {
@@ -1100,6 +1107,7 @@ async function main() {
     if (input === '/clear') {
       messages.length = 0;
       messages.push({ role: 'system', content: withPlanNote(SYSTEM_PROMPT, state.think) });
+      refreshProjectContext();
       await persist();
       console.log(C.dim('  Conversation cleared.\n'));
       continue;
@@ -1199,6 +1207,7 @@ async function main() {
       session = loaded;
       messages.length = 0;
       messages.push(...(loaded.messages.length ? loaded.messages : [{ role: 'system', content: SYSTEM_PROMPT }]));
+      refreshProjectContext();
       console.log('  ' + sessionHeadline(session) + '\n');
       continue;
     }
@@ -1208,6 +1217,7 @@ async function main() {
       session = { meta: await store.create('untitled'), messages: [] };
       messages.length = 0;
       messages.push({ role: 'system', content: SYSTEM_PROMPT });
+      refreshProjectContext();
       console.log('  ' + sessionHeadline(session) + '\n');
       continue;
     }
