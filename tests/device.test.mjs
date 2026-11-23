@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { DEVICE_TOOL, runDevice, validateDeviceAction } from '../lib/device.mjs';
+import { DEVICE_TOOL, runDevice, validateDeviceAction, parseDeviceCommand } from '../lib/device.mjs';
 import { TOOL_SCHEMA, toolsForOpenAI, runTool } from '../lib/tools.mjs';
 
 describe('Android device tool registration', () => {
@@ -166,5 +166,20 @@ describe('Android device execution and privacy gates', () => {
     });
     assert.match(out, /not installed/);
     assert.match(out, /pkg install termux-api/);
+  });
+});
+
+
+describe('direct CLI device commands', () => {
+  it('parses safe commands for models that cannot make tool calls', () => {
+    assert.deepEqual(parseDeviceCommand(''), { action: 'status' });
+    assert.deepEqual(parseDeviceCommand('battery'), { action: 'battery' });
+    assert.deepEqual(parseDeviceCommand('torch on'), { action: 'torch', state: 'on' });
+    assert.deepEqual(parseDeviceCommand('photo my-shot.jpg'), { action: 'camera_photo', path: 'my-shot.jpg' });
+    assert.deepEqual(parseDeviceCommand('vibrate 200'), { action: 'vibrate', duration_ms: 200 });
+    assert.deepEqual(parseDeviceCommand('volume music 5'), { action: 'volume_set', stream: 'music', level: 5 });
+    assert.deepEqual(parseDeviceCommand('open https://example.com'), { action: 'open_url', url: 'https://example.com' });
+    assert.match(parseDeviceCommand('root shell').error, /Usage/);
+    assert.match(validateDeviceAction(parseDeviceCommand('photo ../oops.jpg')).error, /simple/);
   });
 });
