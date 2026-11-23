@@ -43,6 +43,8 @@ test('local phone tools: filesystem, editing, web search and the browser, no Com
     'list_dir',
     'multi_edit',
     'read_file',
+    'run_tests',
+    'task',
     'web_search',
     'write_file',
   ]);

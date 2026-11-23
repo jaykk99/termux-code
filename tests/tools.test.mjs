@@ -33,6 +33,44 @@ after(async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
 
+describe('run_tests and sub-agents', () => {
+  it('run_tests says so when the project declares no check', async () => {
+    const empty = await fs.mkdtemp(path.join(os.tmpdir(), 'tc-empty-'));
+    try {
+      const out = await runTool('run_tests', {}, { root: empty, approve });
+      assert.match(out, /No test command found/);
+    } finally {
+      await fs.rm(empty, { recursive: true, force: true });
+    }
+  });
+
+  it('run_tests runs the declared script after approval', async () => {
+    const pkgDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tc-pkg-'));
+    await fs.writeFile(path.join(pkgDir, 'package.json'), JSON.stringify({ scripts: { test: 'echo project-check-ran' } }));
+    const seen = [];
+    try {
+      const out = await runTool('run_tests', {}, { root: pkgDir, approve: async (d, c) => (seen.push(c), true) });
+      assert.deepEqual(seen, ['npm test']);
+      assert.match(out, /project-check-ran/);
+      assert.match(out, /^exit 0/);
+    } finally {
+      await fs.rm(pkgDir, { recursive: true, force: true });
+    }
+  });
+
+  it('task hands the job to the spawn handler, and says so when there is none', async () => {
+    const calls = [];
+    const out = await runTool(
+      'task',
+      { prompt: 'list the top-level files', context: 'root=/tmp/x' },
+      { root, approve, spawn: async (p, c) => (calls.push([p, c]), 'REPORT') },
+    );
+    assert.equal(out, 'REPORT');
+    assert.deepEqual(calls, [['list the top-level files', 'root=/tmp/x']]);
+    assert.match(await runTool('task', { prompt: 'x' }, ctx()), /not available/);
+  });
+});
+
 describe('web tools', () => {
   it('web_search parses results and unwraps the DuckDuckGo redirect', async () => {
     const real = globalThis.fetch;

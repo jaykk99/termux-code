@@ -138,6 +138,11 @@ Termux command page. The chat itself lives in Termux on the phone.
   workspace, key in `COMPOSIO_API_KEY`), `run_terminal` (a sandboxed
   shell on the host — no provider keys in its environment), `fetch_url`
   and `web_search`. Every tool call is audit-logged to `.data/audit.log`.
+- **Sub-agents and project checks.** `task` spawns a sub-agent with a fresh
+  context and its own step budget (research, read a repo, draft code) and
+  returns only its report, so a side quest does not fill the main
+  conversation; `run_tests` runs the project's own declared check (npm test,
+  make test, pytest, cargo, go) after approval instead of guessing a command.
 - **Search and page reading on the phone itself.** `web_search` (DuckDuckGo
   HTML, no key) and `fetch_url` (page text with the markup stripped) are
   plain HTTP calls in `lib/web.mjs`, so they work in Termux with no Chromium,
@@ -273,6 +278,9 @@ does not bury the conversation you were actually in.
 | `/model` | Pick a model for local read/edit/bash work |
 | `/models` | Show what's available, grouped by source |
 | `/think` | Toggle plan-first: write a 5-step `TODO.md`, then work it in order (also `--think`) |
+| `/keys` | Show which provider keys are set |
+| `/key NAME value` | Save a provider key (`VENICE_API_KEY`, `OPENROUTER_API_KEY`, …) and switch its provider on |
+| `/trace` | Print the model's own text for every step — the closest a text worker gets to a visible train of thought |
 | `/ask <message>` | Message your error-inbox agent instead (no file access) |
 | `/inbox-key <token>` | Save the `eibx_...` token `/ask` uses |
 | `/gateway <url>` | Point at a different deployment |
@@ -368,7 +376,7 @@ across restarts (`~/.termux-code/history`, last 200 commands).
 
 ## Tests
 
-`npm test` runs the `node:test` battery in `tests/` (820 tests): gateway HTTP
+`npm test` runs the `node:test` battery in `tests/` (823 tests): gateway HTTP
 helpers, the model registry and its trusted resolution, the failover chain and
 circuit breaker, session persistence, the CLI argument parser, and an
 end-to-end one-shot run against a stub gateway — including the check that an

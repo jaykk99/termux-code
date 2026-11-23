@@ -370,6 +370,12 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
     let reply;
     try {
       reply = await completeFn();
+      // /trace: the model's own words for this step, before any tool parsing —
+      // the closest thing a text worker has to a visible train of thought.
+      if (agent.trace) {
+        const raw = String(reply?.text ?? '').trim();
+        if (raw) console.log(C.grey(`  [trace] ${raw.replace(/\s+/g, ' ').slice(0, 400)}`));
+      }
     } catch (err) {
       spin.stop();
       if (err instanceof FailoverError) {
@@ -494,6 +500,8 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
           result = await runTool(call.name, call.args, {
             root,
             approve: (d, detail) => approve(rl, d, detail),
+            // The task tool: a sub-agent with a fresh context (set up below).
+            spawn: (p, c) => runSubagent(p, c),
             // Only the browser tool reads these: its no-Chromium read
             // fallback goes through the gateway, like Composio does.
             gateway: gateway.gateway,
@@ -531,6 +539,9 @@ const HELP = [
   ['/session <n>', 'resume a session by number or id'],
   ['/new', 'start a new session'],
   ['/think', 'toggle plan-first mode (TODO.md plan, then work the steps)'],
+  ['/keys', 'show which provider keys are set'],
+  ['/key NAME value', 'save a provider key (VENICE_API_KEY, OPENROUTER_API_KEY, …)'],
+  ['/trace', "show the model's own text for each step"],
   ['/rename <t>', 'rename the current session'],
   ['/export [file]', 'export the session as Markdown'],
   ['/failover', 'show provider failover status'],
@@ -630,9 +641,15 @@ async function main() {
   // whether one is set.
   if (cfg.broBaseUrl && !process.env.BRO_BASE_URL) process.env.BRO_BASE_URL = cfg.broBaseUrl;
   if (cfg.broAccessCode && !process.env.BRO_ACCESS_CODE) process.env.BRO_ACCESS_CODE = cfg.broAccessCode;
+  // Keys saved with /key live in config.json and are applied before the
+  // catalogue loads, so a pasted key switches its provider on in the same
+  // session. A real environment variable always wins over the file.
+  for (const [name, value] of Object.entries(cfg.keys || {})) {
+    if (typeof value === 'string' && value && !process.env[name]) process.env[name] = value;
+  }
 
   const boot = spinner('Loading models');
-  const models = await loadCatalogue(cfg);
+  let models = await loadCatalogue(cfg);
   boot.stop();
 
   let model =
@@ -812,6 +829,41 @@ async function main() {
   // session; a fresh /gateway-token re-enables the gateway.
   let gatewayDead = false;
 
+  /**
+   * A sub-agent: the `task` tool, run in a fresh context with its own step
+   * budget, so a long side quest (read this repo, find X, draft Y) does not
+   * fill the main conversation with its transcript. It reports back in text;
+   * the main session decides what to do with that.
+   */
+  const runSubagent = async (taskPrompt, extraContext = '') => {
+    const sub = [
+      {
+        role: 'system',
+        content:
+          SYSTEM_PROMPT +
+          '\n\n## Sub-agent\nYou are a sub-agent working for the main session. Do exactly this one task, do not ask questions, and finish with a short report: what you did, what you found, and anything left undone.',
+      },
+      { role: 'user', content: extraContext ? `${taskPrompt}\n\n[context]\n${extraContext}` : taskPrompt },
+    ];
+    const before = MAX_STEPS;
+    MAX_STEPS = Math.min(8, before);
+    try {
+      const out = await turn(
+        model,
+        sub,
+        rl,
+        root,
+        () => completeFor(sub),
+        { gateway: cfg.gateway, gatewayToken: cfg.gatewayToken },
+        { verify: { ...verifyState, enabled: false }, summarize, verbose: false, trace: state.trace }
+      );
+      const report = typeof out === 'string' ? out : String(out?.text ?? '');
+      return report.trim().slice(0, 4000) || 'The sub-agent returned nothing.';
+    } finally {
+      MAX_STEPS = before;
+    }
+  };
+
   // One prompt, no REPL. Exit 0 only when the turn actually produced an
   // answer, so `termux-code -p ...` is usable from a script.
   if (oneShot) {
@@ -824,7 +876,7 @@ async function main() {
       answer = await turn(model, messages, rl, root, () => completeFor(messages), {
         gateway: cfg.gateway,
         gatewayToken: cfg.gatewayToken,
-      }, { verify: verifyState, summarize, verbose: args.verbose || state.verbose });
+      }, { verify: verifyState, summarize, verbose: args.verbose || state.verbose, trace: state.trace });
     } finally {
       console.log = realLog;
     }
@@ -1012,6 +1064,46 @@ async function main() {
       messages.push({ role: 'system', content: withPlanNote(SYSTEM_PROMPT, state.think) });
       await persist();
       console.log(C.dim('  Conversation cleared.\n'));
+      continue;
+    }
+
+    if (input === '/trace') {
+      state.trace = !state.trace;
+      console.log(
+        C.dim(
+          state.trace
+            ? '  trace on — every step prints the model\u2019s own text before tool calls.\n'
+            : '  trace off.\n'
+        )
+      );
+      continue;
+    }
+
+    if (input === '/keys') {
+      const known = ['VENICE_API_KEY', 'OPENROUTER_API_KEY', 'NAGA_API_KEY', 'DEEPINFRA_API_KEY', 'GRATISFY_API_KEY', 'LLM7_API_KEY', 'AIHORDE_API_KEY', 'HF_TOKEN', 'ERROR_INBOX_KEY'];
+      const lines = known.map((n) => `${process.env[n] ? C.green('set  ') : C.grey('unset')} ${n}`);
+      console.log(
+        '\n' +
+          box([...lines, '', C.dim('/key NAME value saves one (plain text in ~/.termux-code/config.json)')], { title: 'provider keys' }) +
+          '\n'
+      );
+      continue;
+    }
+
+    if (input.startsWith('/key ')) {
+      const [, name, ...rest] = input.split(/\s+/);
+      const value = rest.join(' ').trim();
+      if (!/^[A-Z][A-Z0-9_]{2,63}$/.test(name || '') || !value) {
+        console.log(C.dim('  Usage: /key OPENROUTER_API_KEY <value>   (see /keys)\n'));
+        continue;
+      }
+      cfg.keys = { ...(cfg.keys || {}), [name]: value };
+      await saveConfig(cfg);
+      process.env[name] = value;
+      models = await loadCatalogue(cfg);
+      console.log(
+        C.dim(`  ${name} set for this session and saved. ${models.length} model(s) available now — /models, then /model.\n`)
+      );
       continue;
     }
 
@@ -1236,6 +1328,7 @@ async function main() {
       verify: verifyState,
       summarize,
       verbose: state.verbose,
+      trace: state.trace,
     });
     await persist();
     console.log('');
