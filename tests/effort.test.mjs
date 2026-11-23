@@ -25,6 +25,11 @@ test('fast has smaller failover and backoff budget, deep is more deliberate', ()
   assert.ok(fast.maxRetryDelayMs < deep.maxRetryDelayMs);
   assert.equal(fast.transientRetries, 0);
   assert.equal(deep.transientRetries, 1);
+  assert.equal(fast.emptyRetry, true);
+  assert.equal(effortConfig('balanced').emptyRetry, true);
+  assert.equal(deep.emptyRetry, true);
+  assert.equal(fast.refusalRetry, false);
+  assert.ok(fast.maxAttempts >= 4);
   assert.match(effortInstruction('deep'), /checks/);
   assert.match(effortInstruction('fast'), /promptly/);
 });
