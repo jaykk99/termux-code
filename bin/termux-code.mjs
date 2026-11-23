@@ -273,10 +273,10 @@ async function chooseModel(models, current, rl) {
  * (Vercel env); only this phone runs the tools. Returns the gateway's reply
  * in the same shape local complete() returns: { text, toolCalls, assistantMessage }.
  */
-export async function completeViaGateway(gateway, model, messages, gatewayToken) {
+export async function completeViaGateway(gateway, model, messages, gatewayToken, { timeoutMs = 30_000 } = {}) {
   const res = await fetch(gateway.replace(/\/$/, '') + '/api/chat', {
     method: 'POST',
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(timeoutMs),
     headers: {
       'Content-Type': 'application/json',
       ...(gatewayToken ? { Authorization: `Bearer ${gatewayToken}` } : {}),
@@ -839,7 +839,7 @@ async function main(workspaceOverride = null) {
     const prepareMessages = (source) => source.map((msg, i) => i === 0 && msg?.role === 'system'
       ? { ...msg, content: String(msg.content || '') + '\n\n' + effortInstruction(effort) }
       : msg);
-    const gatewayTurn = () => runFailoverTurn(model, models, msgs, tracker, (m, context) => completeViaGateway(cfg.gateway, m, prepareMessages(context), cfg.gatewayToken), sessionBadModels, chainOpts);
+    const gatewayTurn = () => runFailoverTurn(model, models, msgs, tracker, (m, context) => completeViaGateway(cfg.gateway, m, prepareMessages(context), cfg.gatewayToken, { timeoutMs: effort === 'fast' ? 12_000 : effort === 'balanced' ? 25_000 : 45_000 }), sessionBadModels, chainOpts);
     // MCP tools are passed in the shape the model's wire format expects; the
     // gateway path gets none because the gateway has its own tool list.
     const directTurn = () =>
