@@ -44,6 +44,21 @@ test('continuation is bounded and preserves transcript', () => {
   assert.match(messages[2].content,/Task completion check/);
 });
 
+test('a shell command that writes is implementation evidence too', () => {
+  const state = createTaskProgress('make a marker file');
+  observeTaskTool(state,'bash',{command:'touch owned.txt'},'');
+  assert.equal(state.changed,true);
+  assert.equal(continuationInstruction(state),null);
+});
+
+test('a declined action stops the continuation prompts', () => {
+  const state = createTaskProgress('Build the project');
+  observeTaskTool(state,'bash',{command:'touch x'},'declined (shell): this run was started with --ask and no terminal, so it only reads.');
+  assert.equal(state.blocked,true);
+  assert.equal(state.changed,false);
+  assert.equal(continuationInstruction(state),null);
+});
+
 test('verification attempts are noted separately from changes', () => {
   const state = createTaskProgress('Repair the tests in this repository');
   observeTaskTool(state,'bash',{command:'npm test'},'exit code: 1');

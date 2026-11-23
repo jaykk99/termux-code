@@ -481,7 +481,7 @@ export async function turn(model, messages, rl, root, completeFn, gateway = {}, 
         continue;
       }
       // The model thinks it's done. Check its work if it changed anything.
-      if (progress.coding && !progress.changed && !progress.inspected) {
+      if (progress.coding && !progress.changed && !progress.inspected && !progress.blocked) {
         console.log(C.red('  [workflow] No project inspection or implementation occurred; task is incomplete.'));
         return null;
       }
