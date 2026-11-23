@@ -37,6 +37,7 @@ import { REASONING_MODES, reasoningPolicy, withReasoningNote } from '../lib/reas
 import { memoryNote, withMemory } from '../lib/frontier.mjs';
 import { discoverReconSettings, runReconTool, validateReconUrl, withReconHint } from '../lib/recon.mjs';
 import { startLocalRecon } from '../lib/recon-service.mjs';
+import { runDevice } from '../lib/device.mjs';
 
 const CONFIG_DIR = path.join(os.homedir(), '.termux-code');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
@@ -693,6 +694,7 @@ export const HELP = [
   ['/recon code <code>', 'save the ReconAnything owner access code'],
   ['/recon active on', 'explicitly permit active scans for this session'],
   ['/browser', 'check browser access, Chromium and gateway fallback'],
+  ['/device', 'inspect Android/Termux:API command availability and permission setup'],
   ['/exit', 'quit'],
 ];
 
@@ -1601,6 +1603,19 @@ async function main(workspaceOverride = null) {
           ? 'Use the agent browser tool to open, read, click, type or screenshot. CDP capability requires a live smoke test.'
           : 'Install with: pkg install chromium. Without Chromium, the gateway can read page text only.')
       ], { title: 'browser access' }) + '\n');
+      continue;
+    }
+
+    if (input === '/device' || input === '/device status') {
+      const status = JSON.parse(await runDevice({ action: 'status' }, { root }));
+      const available = Object.entries(status.actions).filter(([,ok])=>ok).map(([name])=>name);
+      const missing = Object.entries(status.actions).filter(([,ok])=>!ok).map(([name])=>name);
+      console.log('\n' + box([
+        (status.termuxApiCommandsInstalled ? C.green('Termux:API commands found') : C.amber('No Termux:API commands found')),
+        '  Available: ' + (available.join(', ') || '(none)'),
+        '  Missing: ' + (missing.join(', ') || '(none)'),
+        '', C.dim(status.integration), C.dim(status.permissions), C.dim(status.deviceControl),
+      ], { title: 'Android device access' }) + '\n');
       continue;
     }
 
