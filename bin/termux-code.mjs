@@ -32,6 +32,7 @@ import { projectInstructions, applyProjectInstructions } from '../lib/project-co
 import { browserDiagnostic } from '../lib/browser.mjs';
 import { connectGithubRepo, resolveLocalRepo } from '../lib/repo-connector.mjs';
 import { createTaskProgress, observeTaskTool, requestContinuation } from '../lib/task-progress.mjs';
+import { selectEffort, effortConfig, effortInstruction, EFFORT_MODES } from '../lib/effort.mjs';
 
 const CONFIG_DIR = path.join(os.homedir(), '.termux-code');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
@@ -107,6 +108,7 @@ async function loadCatalogue(cfg) {
     try {
       const res = await fetch(cfg.gateway.replace(/\/$/, '') + '/api/models', {
         headers: gatewayHeaders(cfg),
+        signal: AbortSignal.timeout(8_000),
       });
       if (res.ok) {
         const data = await res.json();
@@ -271,9 +273,10 @@ async function chooseModel(models, current, rl) {
  * (Vercel env); only this phone runs the tools. Returns the gateway's reply
  * in the same shape local complete() returns: { text, toolCalls, assistantMessage }.
  */
-export async function completeViaGateway(gateway, model, messages, gatewayToken) {
+export async function completeViaGateway(gateway, model, messages, gatewayToken, { timeoutMs = 30_000 } = {}) {
   const res = await fetch(gateway.replace(/\/$/, '') + '/api/chat', {
     method: 'POST',
+    signal: AbortSignal.timeout(timeoutMs),
     headers: {
       'Content-Type': 'application/json',
       ...(gatewayToken ? { Authorization: `Bearer ${gatewayToken}` } : {}),
@@ -324,6 +327,10 @@ export async function runFailoverTurn(model, models, messages, tracker, complete
   const { model: winner, reply } = await completeWithFailover([model, ...rest], messages, completeOne, tracker, {
     pinFirst: model,
     sessionBadModels,
+    maxAttempts: opts.maxAttempts,
+    maxRetryDelayMs: opts.maxRetryDelayMs,
+    transientRetries: opts.transientRetries,
+    refusalRetry: opts.refusalRetry,
     onAttempt: (a) => {
       if (a.ok) return;
       failures.push(a);
@@ -569,6 +576,8 @@ const HELP = [
   ['/session <n>', 'resume a session by number or id'],
   ['/new', 'start a new session'],
   ['/think', 'toggle plan-first mode (TODO.md plan, then work the steps)'],
+  ['/effort <mode>', 'adaptive thinking: auto, fast, balanced, or deep'],
+  ['/model-info', 'show selected model provenance and verification limits'],
   ['/keys', 'show which provider keys are set'],
   ['/key NAME value', 'save a provider key (VENICE_API_KEY, OPENROUTER_API_KEY, …)'],
   ['/trace', "show the model's own text for each step"],
@@ -806,7 +815,7 @@ async function main(workspaceOverride = null) {
    * Session-level switches that the REPL can change at runtime. Quiet is
    * the default: a failed provider is a detail, not news.
    */
-  const state = { verbose: Boolean(args.verbose), think: Boolean(args.think) };
+  const state = { verbose: Boolean(args.verbose), think: Boolean(args.think), effort: 'auto', turnEffort: 'fast' };
   refreshProjectContext();
   // Plan-first: the note rides on the system prompt, so every turn of the
   // session sees it — including the tool results the model reads back.
@@ -825,11 +834,12 @@ async function main(workspaceOverride = null) {
    * chatting; a fresh session retries the gateway.
    */
   const completeFor = async (msgs) => {
-    // refusalRetry: an uncensored route that still declines gets one nudge in
-  // the same turn before the chain walks. Uncensored pool, so a refusal is
-  // nearly always a filter the model does not have.
-  const chainOpts = { verbose: state.verbose, refusalRetry: true };
-    const gatewayTurn = () => runFailoverTurn(model, models, msgs, tracker, (m) => completeViaGateway(cfg.gateway, m, msgs, cfg.gatewayToken), sessionBadModels, chainOpts);
+    const effort = state.think ? 'deep' : state.turnEffort;
+    const chainOpts = { verbose: state.verbose, ...effortConfig(effort) };
+    const prepareMessages = (source) => source.map((msg, i) => i === 0 && msg?.role === 'system'
+      ? { ...msg, content: String(msg.content || '') + '\n\n' + effortInstruction(effort) }
+      : msg);
+    const gatewayTurn = () => runFailoverTurn(model, models, msgs, tracker, (m, context) => completeViaGateway(cfg.gateway, m, prepareMessages(context), cfg.gatewayToken, { timeoutMs: effort === 'fast' ? 12_000 : effort === 'balanced' ? 25_000 : 45_000 }), sessionBadModels, chainOpts);
     // MCP tools are passed in the shape the model's wire format expects; the
     // gateway path gets none because the gateway has its own tool list.
     const directTurn = () =>
@@ -838,7 +848,7 @@ async function main(workspaceOverride = null) {
         models,
         msgs,
         tracker,
-        (m) => complete(m, msgs, process.env, m.auth === 'anthropic' ? mcpToolsAnthropic : mcpToolsOAI),
+        (m, context) => complete(m, prepareMessages(context), process.env, m.auth === 'anthropic' ? mcpToolsAnthropic : mcpToolsOAI, { effort }),
         sessionBadModels,
         chainOpts
       );
@@ -932,6 +942,7 @@ async function main(workspaceOverride = null) {
   // One prompt, no REPL. Exit 0 only when the turn actually produced an
   // answer, so `termux-code -p ...` is usable from a script.
   if (oneShot) {
+    state.turnEffort = selectEffort(prompt, state.effort);
     messages.push({ role: 'user', content: prompt });
     await persist();
     const realLog = console.log;
@@ -1170,6 +1181,22 @@ async function main(workspaceOverride = null) {
       console.log(
         C.dim(`  ${name} set for this session and saved. ${models.length} model(s) available now — /models, then /model.\n`)
       );
+      continue;
+    }
+
+    if (input === '/effort' || input.startsWith('/effort ')) {
+      const wanted = input.slice('/effort'.length).trim().toLowerCase();
+      if (!wanted) console.log(C.dim('  Thinking effort: ' + state.effort + ' (auto chooses by task)\n'));
+      else if (EFFORT_MODES.includes(wanted)) {
+        state.effort = wanted;
+        console.log(C.dim('  Thinking effort set to ' + wanted + '.\n'));
+      } else console.log(C.dim('  Usage: /effort auto|fast|balanced|deep\n'));
+      continue;
+    }
+
+    if (input === '/model-info') {
+      console.log(C.dim('  Selected: ' + model.provider + '/' + model.id + ' (' + model.source + ')\n' +
+        '  Classification: model name/provider allowlist. This is not proof that a hosted model is unfiltered; providers can change routing and models may decline requests.\n'));
       continue;
     }
 
@@ -1432,6 +1459,7 @@ async function main(workspaceOverride = null) {
       continue;
     }
 
+    state.turnEffort = selectEffort(input, state.effort);
     messages.push({ role: 'user', content: input });
     // Save the user's message BEFORE the turn runs: if Termux is killed
     // mid-turn, the old code only persisted after turn() returned, so the
