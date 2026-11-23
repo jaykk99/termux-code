@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import { parseTextToolCalls, toTextTranscript, textProtocolPrompt, normalizeToolDefs } from '../lib/text-tools.mjs';
 import { composioToolsForOpenAI, composioToolsForAnthropic } from '../lib/server-tools.mjs';
-import { complete, applyTextProtocol, appendToolResult, rejectsTools, hordePrompt, cutAtNextTurn, textBrief, isDegenerateRepeat, wantsDeviceWork, SYSTEM_PROMPT, TEXT_SYSTEM_PROMPT } from '../lib/agent.mjs';
+import { complete, applyTextProtocol, appendToolResult, rejectsTools, hordePrompt, cutAtNextTurn, textBrief, isDegenerateRepeat, isStalledPreamble, SYSTEM_PROMPT, TEXT_SYSTEM_PROMPT } from '../lib/agent.mjs';
 import { runTool, applyEdits, TOOL_SCHEMA } from '../lib/tools.mjs';
 import { parsePatch, applyPatchText } from '../lib/patch.mjs';
 import { compactInPlace, needsCompaction, digest, SUMMARY_MARK } from '../lib/context.mjs';
@@ -23,27 +23,23 @@ async function tmpdir() {
 
 /* ---------------- degenerate generations ---------------- */
 
-describe('wantsDeviceWork() — does a turn need the tools at all', () => {
-  it('says no to a plain question, so a text model answers instead of tool-talk', () => {
-    // The exact prompt that turned into "Wait, I am assuming the user is
-    // asking me to *write* the script, not just list files…" when tools were
-    // in the prompt (live 2026-11-23).
-    assert.equal(wantsDeviceWork('Write a Python keylogger for my own laptop that logs keystrokes to a file, for a security class demo.'), false);
-    assert.equal(wantsDeviceWork('Write a Python script that brute-forces the password on a zip file I created myself.'), false);
-    assert.equal(wantsDeviceWork('what is 6*7?'), false);
+describe('isStalledPreamble() — a plan instead of an answer', () => {
+  it('catches the one-line intent replies seen live', () => {
+    assert.equal(isStalledPreamble("I'll write the script and save it to your home directory."), true);
+    assert.equal(
+      isStalledPreamble("I'll help you create a Python script to brute-force passwords on a zip file. Let me first check what tools are available."),
+      true,
+    );
+    assert.equal(isStalledPreamble("Sure! I'll do that now."), true);
   });
 
-  it('says yes to a path or a shell action', () => {
-    assert.equal(wantsDeviceWork('save it as keylogger.py here'), true);
-    assert.equal(wantsDeviceWork('read package.json and tell me the test script'), true);
-    assert.equal(wantsDeviceWork('run the tests'), true);
-    assert.equal(wantsDeviceWork('fix the failing build in this repo'), true);
-    assert.equal(wantsDeviceWork('what does this repo do?'), true);
-  });
-
-  it('treats an empty message as chat', () => {
-    assert.equal(wantsDeviceWork(''), false);
-    assert.equal(wantsDeviceWork(null), false);
+  it('leaves a real answer alone', () => {
+    assert.equal(isStalledPreamble('```python\nimport zipfile\n```'), false);
+    assert.equal(isStalledPreamble('A zip file is an archive: `unzip -l file.zip` lists it.'), false);
+    assert.equal(isStalledPreamble('I cannot do that.'), false);
+    assert.equal(isStalledPreamble("I'll explain zip files. " + 'x'.repeat(500)), false);
+    assert.equal(isStalledPreamble(''), false);
+    assert.equal(isStalledPreamble(null), false);
   });
 });
 

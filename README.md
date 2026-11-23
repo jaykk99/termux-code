@@ -315,14 +315,21 @@ crack-my-own-zip prompt both came back blank rather than refused). And a
 generation that repeats its own instructions in a loop is treated as collapsed
 and resubmitted, instead of being shown as an answer.
 
-On the Horde route the tool brief is only sent when the turn needs the device —
-a path with an extension, a shell verb like run/install/edit, or "this repo".
-A plain question ("write me a keylogger script") is answered as chat, because a
-small worker handed a tool list opens with "Wait, I am assuming the user is
-asking me to *write* the script, not just list files…" and spends its 512
-tokens on that instead of the answer (measured live 2026-11-23). The brief that
-does go out ends on a worked example of a question answered in one line, since
-these workers copy the last pattern they read.
+The Horde tool brief is always sent, whatever the prompt looks like. Gating it
+on what the prompt looked like (path? shell verb?) meant "search the web for
+X" went out with no `bash` or `browser` tool to call, and the agent answered
+that it could not search — so the gate is gone. Two things keep the small
+workers usable instead:
+
+- The output-format rule lives in the **system block**, ahead of the ask. Put
+  after the ask, it was the instruction a worker answered: told to run
+  `echo hi`, it replied "Understood. I will adhere to the new format from now
+  on." (live 2026-11-23). Prose instead of a tool call is recoverable (the
+  turn asks for a resend); an acknowledgement is a dead turn.
+- A reply that is only a plan — "I'll write the script and save it to your
+  home directory.", under 400 chars, no code, no tool call — gets one more ask
+  with no tool list, which is where these workers do answer, and that answer
+  is used when it is substantive.
 
 Speed comes from the same places. Horde's worker feed is a ~4 KB JSON list that
 used to be fetched before every completion (measured here: 210–354 ms per

@@ -79,7 +79,10 @@ describe('callHorde() via complete()', () => {
     assert.equal(probes, 1);
   });
 
-  it('sends no tool brief for a plain question', async () => {
+  it('always sends the tool brief, even for a plain question', async () => {
+    // Gating the brief on what the prompt looked like meant "search the web
+    // for X" went out with no browser/bash tool to call, and the agent
+    // answered that it could not search.
     responder = async (url, options) => {
       if (url.includes('/status/models')) return jsonRes([{ name: 'koboldcpp/L3-8B-Stheno-v3.2-GGUF', count: 1, eta: 0 }]);
       if (url.endsWith('/async')) {
@@ -89,8 +92,29 @@ describe('callHorde() via complete()', () => {
       return jsonRes({ done: true, generations: [{ text: '42' }] });
     };
     await complete(hordeModel, [{ role: 'user', content: 'what is 6*7?' }], {});
-    assert.doesNotMatch(seenSubmit.prompt, /## Tools/);
-    assert.doesNotMatch(seenSubmit.prompt, /<tool_call>/);
+    assert.match(seenSubmit.prompt, /## Tools/);
+    assert.match(seenSubmit.prompt, /- (bash|browser)\(/);
+  });
+
+  it('asks again without the tool list when a worker only describes the plan', async () => {
+    // Live 2026-11-23: with the brief in the prompt a worker answered "I'll
+    // write the script and save it to your home directory." — no call, no
+    // code, a dead turn. The rescue ask has no tool list and does answer.
+    const prompts = [];
+    responder = async (url, options) => {
+      if (url.includes('/status/models')) return jsonRes([{ name: 'koboldcpp/L3-8B-Stheno-v3.2-GGUF', count: 1, eta: 0 }]);
+      if (url.endsWith('/async')) {
+        prompts.push(JSON.parse(options.body).prompt);
+        return jsonRes({ id: `job${prompts.length}` });
+      }
+      const text = url.includes('job2') ? '```python\nimport zipfile\n```' : "I'll write the script and save it to your home directory.";
+      return jsonRes({ done: true, generations: [{ text }] });
+    };
+    const reply = await complete(hordeModel, [{ role: 'user', content: 'write a zip cracker' }], {});
+    assert.equal(prompts.length, 2);
+    assert.match(prompts[0], /## Tools/);
+    assert.doesNotMatch(prompts[1], /## Tools/);
+    assert.match(reply.text, /zipfile/);
   });
 
   it('keeps the tool brief when the prompt names a file to work on', async () => {
@@ -298,9 +322,13 @@ describe('callHorde() via complete()', () => {
     assert.match(submitted, /console\.log\(6\*7\)/);
     assert.match(submitted, /<tool_call>/);
     assert.match(submitted, /- bash\(command\)/);
-    // The format rule sits in the same turn as the ask, after it: a small
-    // model follows the nearest instruction.
-    assert.match(submitted, /console\.log\(6\*7\)[\s\S]*If a tool is needed, respond with <tool_call>/);
+    // The format rule rides with the protocol, before the ask, so the last
+    // thing the model reads is the request itself — with the rule last, a
+    // worker answered the rule ("Understood. I will adhere to the new
+    // format…", live 2026-11-23) instead of running the command.
+    assert.match(submitted, /If a tool is needed, respond with <tool_call>/);
+    assert.ok(submitted.indexOf('If a tool is needed') < submitted.indexOf('console.log'));
+    assert.ok(submitted.endsWith('### Assistant:\n'));
     assert.doesNotMatch(submitted, /Chromium|Composio|pkg install|Android phone\.\n\nEnvironment/);
     assert.ok(submitted.length < 1600, `prompt is ${submitted.length} chars`);
   });
