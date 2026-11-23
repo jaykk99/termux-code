@@ -85,6 +85,7 @@ describe('completeViaGateway()', () => {
     assert.equal(reply.text, 'hello');
     assert.equal(seen[0].url, 'https://gw.example.com/api/chat');
     assert.equal(seen[0].options.headers.Authorization, 'Bearer tok-1');
+    assert.ok(seen[0].options.signal instanceof AbortSignal, 'gateway request must have a timeout signal');
     assert.deepEqual(JSON.parse(seen[0].options.body).model, model);
   });
 
