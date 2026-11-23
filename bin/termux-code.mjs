@@ -38,7 +38,7 @@ const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 const SESSIONS_DIR = path.join(CONFIG_DIR, 'sessions');
 const HISTORY_FILE = path.join(CONFIG_DIR, 'history');
 /** Tool steps per turn. Peer of the --max-steps flag, so it is mutable. */
-let MAX_STEPS = 40;
+let MAX_STEPS = 80;
 const MAX_VERIFY_ATTEMPTS = 3;
 const VERIFY_TIMEOUT_MS = 180_000;
 const HISTORY_KEEP = 200;
@@ -911,7 +911,7 @@ async function main(workspaceOverride = null) {
       { role: 'user', content: extraContext ? `${taskPrompt}\n\n[context]\n${extraContext}` : taskPrompt },
     ];
     const before = MAX_STEPS;
-    MAX_STEPS = Math.min(8, before);
+    MAX_STEPS = Math.min(16, before);
     try {
       const out = await turn(
         model,
