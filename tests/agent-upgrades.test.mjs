@@ -98,6 +98,9 @@ describe('the voice the models are given', () => {
     // The native prompt also carries the "on their side, have an opinion" bit.
     assert.match(SYSTEM_PROMPT, /on their side/i);
     assert.match(SYSTEM_PROMPT, /Have an opinion/i);
+    // Scope: any topic, not coding-only — the owner's uncensored policy.
+    assert.match(SYSTEM_PROMPT, /not limited to code/i);
+    assert.match(TEXT_SYSTEM_PROMPT, /any topic/i);
   });
 });
 

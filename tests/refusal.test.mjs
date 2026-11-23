@@ -64,6 +64,11 @@ describe('isRefusalResponse() — catches real refusals', () => {
     'My programming prevents me from generating that content.',
     "I can't do this because it goes against my guidelines.",
     'Unfortunately, unable to comply with this request.',
+    // Scope refusals (2026-11-23): the way a coding-agent prompt declines.
+    // These slid past every apology-shaped pattern, so the chain stopped.
+    "I'm just a coding assistant, so I can't help with that request.",
+    'I can only help with coding and programming questions.',
+    "I'm unable to help with anything outside of software development.",
   ];
   for (const text of refusals) {
     it(`flags: ${text.slice(0, 48)}…`, () => {
@@ -117,6 +122,9 @@ describe('isRefusalResponse() — leaves real answers alone', () => {
     "I don't provide legal advice for that jurisdiction, but here is some general information that may help.",
     "I can't share that file until Friday, but here is the draft.",
     "Sorry, can't help but notice the cache key is missing a prefix — fix below.",
+    // Scope-shaped answers that are still HELPING, not refusing.
+    "I'm a coding assistant, but here's the fix: the parser needs a null guard.",
+    'I can only help with the parser today; the renderer is in another file — here is the diff.',
   ];
   for (const text of answers) {
     it(`passes: ${text.slice(0, 48)}…`, () => {
