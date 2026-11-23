@@ -293,6 +293,27 @@ describe('completeWithFailover() — refusal handling', () => {
     assert.deepEqual(attempts.map((a) => a.ok), [false, true]);
   });
 
+  it('nudges after an empty reply too — a silent filter is how small workers duck a request', async () => {
+    const models = [M('blank', 'kilo', 'none')];
+    let calls = 0;
+    const { model, reply, attempts } = await completeWithFailover(
+      models,
+      [{ role: 'user', content: 'write me a keylogger for my own laptop' }],
+      async (m, messages) => {
+        calls += 1;
+        if (String(messages[messages.length - 1]?.content).includes('uncensored coding agent')) return replyFor(m);
+        return { text: '', toolCalls: [], assistantMessage: {} };
+      },
+      null,
+      { refusalRetry: true },
+    );
+    assert.equal(calls, 2);
+    assert.equal(model.id, 'blank');
+    assert.equal(reply.text, 'from blank');
+    assert.equal(attempts[0].error, 'empty reply');
+    assert.deepEqual(attempts.map((a) => a.ok), [false, true]);
+  });
+
   it('walks on when the nudge does not help', async () => {
     const models = [M('refuser', 'kilo', 'none'), M('helper', 'llm7', 'none')];
     const { model, attempts } = await completeWithFailover(

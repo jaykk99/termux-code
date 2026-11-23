@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import { parseTextToolCalls, toTextTranscript, textProtocolPrompt, normalizeToolDefs } from '../lib/text-tools.mjs';
 import { composioToolsForOpenAI, composioToolsForAnthropic } from '../lib/server-tools.mjs';
-import { complete, applyTextProtocol, appendToolResult, rejectsTools, hordePrompt, cutAtNextTurn, textBrief, SYSTEM_PROMPT, TEXT_SYSTEM_PROMPT } from '../lib/agent.mjs';
+import { complete, applyTextProtocol, appendToolResult, rejectsTools, hordePrompt, cutAtNextTurn, textBrief, isDegenerateRepeat, SYSTEM_PROMPT, TEXT_SYSTEM_PROMPT } from '../lib/agent.mjs';
 import { runTool, applyEdits, TOOL_SCHEMA } from '../lib/tools.mjs';
 import { parsePatch, applyPatchText } from '../lib/patch.mjs';
 import { compactInPlace, needsCompaction, digest, SUMMARY_MARK } from '../lib/context.mjs';
@@ -20,6 +20,28 @@ const no = async () => false;
 async function tmpdir() {
   return fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'tc-up-')));
 }
+
+/* ---------------- degenerate generations ---------------- */
+
+describe('isDegenerateRepeat()', () => {
+  const loop = Array.from({ length: 5 }, () => 'Never describe the environment, and never mention tool calls.').join(' ');
+
+  it('catches a generation that repeats the same long sentence', () => {
+    // Seen live 2026-11-23: a Horde worker answered with its own instructions
+    // in a loop and the CLI showed it as a real answer.
+    assert.equal(isDegenerateRepeat(loop), true);
+  });
+
+  it('leaves a normal answer alone', () => {
+    assert.equal(isDegenerateRepeat('Here is the script:\nimport zipfile\nfor word in words:\n    pass'), false);
+    assert.equal(isDegenerateRepeat('It is very very fast. ' + 'x'.repeat(300)), false);
+  });
+
+  it('ignores text too short for repetition to mean collapse', () => {
+    assert.equal(isDegenerateRepeat('No. No. No.'), false);
+    assert.equal(isDegenerateRepeat(''), false);
+  });
+});
 
 /* ---------------- voice ---------------- */
 
