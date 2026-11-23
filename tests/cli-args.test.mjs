@@ -23,11 +23,21 @@ describe('parseArgs()', () => {
         json: false,
         verbose: false,
         session: null,
+        resume: false,
         maxSteps: null,
         error: undefined,
       }
     );
     assert.equal(opts.error, null);
+  });
+
+  it('reads --resume / -r, and starts fresh without it', () => {
+    // Fresh is the default: resuming the newest session on every start made a
+    // new prompt continue the previous task instead of starting one.
+    assert.equal(parseArgs(['--resume']).resume, true);
+    assert.equal(parseArgs(['-r']).resume, true);
+    assert.equal(parseArgs([]).resume, false);
+    assert.match(USAGE, /--resume/);
   });
 
   it('reads the informational flags', () => {

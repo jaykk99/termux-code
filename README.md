@@ -338,10 +338,14 @@ provider down for ten minutes, then it becomes eligible again automatically.
 
 ## Sessions
 
-Conversations persist as JSONL under `~/.termux-code/sessions/`, so quitting
-and restarting resumes where you left off. `/sessions` lists them,
-`/session <n>` switches, `/rename` titles, `/export` writes a Markdown
-transcript. The live context compacts automatically past ~60k characters or
+Conversations persist as JSONL under `~/.termux-code/sessions/`. A launch
+starts a **fresh** conversation: continuing an old one is explicit, with
+`--resume` (`-r`, newest saved session) or `/sessions` + `/session <n>`.
+Resuming automatically on every start meant a new prompt was appended to the
+previous task, so the agent kept working on that one instead of the one just
+asked — the "stuck on previous tasks" report. A fresh launch saves nothing
+until its first turn, so `/sessions` lists only conversations that happened.
+`/rename` titles, `/export` writes a Markdown transcript. The live context compacts automatically past ~60k characters or
 80 messages: older turns are replaced by one summary — a deterministic digest
 (every request, files read and changed, commands and their exit codes) plus a
 model-written summary when the model answers in time — and the recent turns
@@ -350,7 +354,7 @@ across restarts (`~/.termux-code/history`, last 200 commands).
 
 ## Tests
 
-`npm test` runs the `node:test` battery in `tests/` (815 tests): gateway HTTP
+`npm test` runs the `node:test` battery in `tests/` (816 tests): gateway HTTP
 helpers, the model registry and its trusted resolution, the failover chain and
 circuit breaker, session persistence, the CLI argument parser, and an
 end-to-end one-shot run against a stub gateway — including the check that an

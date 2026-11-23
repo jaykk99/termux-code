@@ -164,6 +164,9 @@ async function resumeSession(store) {
 }
 
 function sessionHeadline(session) {
+  if (!session.meta.id) {
+    return `${C.dim('session')} ${C.amber(session.meta.title)} ${C.dim('/sessions resumes an earlier one')}`;
+  }
   const n = session.messages.filter((m) => m.role !== 'system').length;
   return `${C.dim('session')} ${C.amber(session.meta.title)} ${C.dim(`(${n} messages, id ${session.meta.id})`)}`;
 }
@@ -685,8 +688,14 @@ async function main() {
     session = args.session
       ? (await store.load(args.session)) || (await store.create('untitled'))
       : { meta: { id: null, title: 'untitled' }, messages: [] };
-  } else {
+  } else if (args.resume) {
     session = await resumeSession(store);
+  } else {
+    // Fresh conversation by default. Resuming the newest session on every
+    // start appended a new prompt to the previous task, so the agent kept
+    // working on that task instead of the new one ("stuck on previous
+    // tasks"). Continuing one is explicit now: --resume, or /sessions.
+    session = { meta: { id: null, title: 'untitled' }, messages: [] };
   }
   // Sessions saved before the gateway-shape fix can carry poisoned entries
   // (an undefined assistant message serialized as null); drop them here so
@@ -700,6 +709,16 @@ async function main() {
    *  save is no longer silent: if the phone can't write, Jay should know
    *  his turns may not survive a restart. */
   const persist = async () => {
+    // A fresh session has no id until it says something: create it on the
+    // first real turn, so a launch that never speaks leaves no empty session
+    // behind and /sessions only lists conversations that happened.
+    if (!session.meta.id && !oneShot) {
+      try {
+        session = { ...session, meta: await store.create('untitled') };
+      } catch {
+        /* keep chatting; the save below reports the failure */
+      }
+    }
     if (!session.meta.id) return; // one-shot without --session: nothing to save
     try {
       if (session.meta.title === 'untitled') {
@@ -779,7 +798,7 @@ async function main() {
     );
     console.log('  ' + sessionHeadline(session));
     console.log(C.dim('  say what you want — "fix the failing test", "what does this repo do?"'));
-    console.log(C.dim('  /help for commands · ctrl-c to quit\n'));
+    console.log(C.dim('  /help for commands · /sessions resumes an old chat · ctrl-c to quit\n'));
   }
 
   // Once the gateway path fails (token rejected, or every provider failed
