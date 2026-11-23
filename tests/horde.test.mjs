@@ -79,6 +79,33 @@ describe('callHorde() via complete()', () => {
     assert.equal(probes, 1);
   });
 
+  it('sends no tool brief for a plain question', async () => {
+    responder = async (url, options) => {
+      if (url.includes('/status/models')) return jsonRes([{ name: 'koboldcpp/L3-8B-Stheno-v3.2-GGUF', count: 1, eta: 0 }]);
+      if (url.endsWith('/async')) {
+        seenSubmit = JSON.parse(options.body);
+        return jsonRes({ id: 'job1' });
+      }
+      return jsonRes({ done: true, generations: [{ text: '42' }] });
+    };
+    await complete(hordeModel, [{ role: 'user', content: 'what is 6*7?' }], {});
+    assert.doesNotMatch(seenSubmit.prompt, /## Tools/);
+    assert.doesNotMatch(seenSubmit.prompt, /<tool_call>/);
+  });
+
+  it('keeps the tool brief when the prompt names a file to work on', async () => {
+    responder = async (url, options) => {
+      if (url.includes('/status/models')) return jsonRes([{ name: 'koboldcpp/L3-8B-Stheno-v3.2-GGUF', count: 1, eta: 0 }]);
+      if (url.endsWith('/async')) {
+        seenSubmit = JSON.parse(options.body);
+        return jsonRes({ id: 'job1' });
+      }
+      return jsonRes({ done: true, generations: [{ text: 'ok' }] });
+    };
+    await complete(hordeModel, [{ role: 'user', content: 'read package.json and list its scripts' }], {});
+    assert.match(seenSubmit.prompt, /## Tools/);
+  });
+
   it('requests the uncensored workers in the submit body', async () => {
     responder = async (url, options) => {
       if (url.includes('/status/models')) {
@@ -237,7 +264,7 @@ describe('callHorde() via complete()', () => {
     assert.match(submitted, /- bash\(command\)/);
     // The format rule sits in the same turn as the ask, after it: a small
     // model follows the nearest instruction.
-    assert.match(submitted, /console\.log\(6\*7\)[\s\S]*Respond with <tool_call> JSON blocks/);
+    assert.match(submitted, /console\.log\(6\*7\)[\s\S]*If a tool is needed, respond with <tool_call>/);
     assert.doesNotMatch(submitted, /Chromium|Composio|pkg install|Android phone\.\n\nEnvironment/);
     assert.ok(submitted.length < 1600, `prompt is ${submitted.length} chars`);
   });

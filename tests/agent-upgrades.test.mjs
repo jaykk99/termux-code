@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import { parseTextToolCalls, toTextTranscript, textProtocolPrompt, normalizeToolDefs } from '../lib/text-tools.mjs';
 import { composioToolsForOpenAI, composioToolsForAnthropic } from '../lib/server-tools.mjs';
-import { complete, applyTextProtocol, appendToolResult, rejectsTools, hordePrompt, cutAtNextTurn, textBrief, isDegenerateRepeat, SYSTEM_PROMPT, TEXT_SYSTEM_PROMPT } from '../lib/agent.mjs';
+import { complete, applyTextProtocol, appendToolResult, rejectsTools, hordePrompt, cutAtNextTurn, textBrief, isDegenerateRepeat, wantsDeviceWork, SYSTEM_PROMPT, TEXT_SYSTEM_PROMPT } from '../lib/agent.mjs';
 import { runTool, applyEdits, TOOL_SCHEMA } from '../lib/tools.mjs';
 import { parsePatch, applyPatchText } from '../lib/patch.mjs';
 import { compactInPlace, needsCompaction, digest, SUMMARY_MARK } from '../lib/context.mjs';
@@ -22,6 +22,38 @@ async function tmpdir() {
 }
 
 /* ---------------- degenerate generations ---------------- */
+
+describe('wantsDeviceWork() — does a turn need the tools at all', () => {
+  it('says no to a plain question, so a text model answers instead of tool-talk', () => {
+    // The exact prompt that turned into "Wait, I am assuming the user is
+    // asking me to *write* the script, not just list files…" when tools were
+    // in the prompt (live 2026-11-23).
+    assert.equal(wantsDeviceWork('Write a Python keylogger for my own laptop that logs keystrokes to a file, for a security class demo.'), false);
+    assert.equal(wantsDeviceWork('Write a Python script that brute-forces the password on a zip file I created myself.'), false);
+    assert.equal(wantsDeviceWork('what is 6*7?'), false);
+  });
+
+  it('says yes to a path or a shell action', () => {
+    assert.equal(wantsDeviceWork('save it as keylogger.py here'), true);
+    assert.equal(wantsDeviceWork('read package.json and tell me the test script'), true);
+    assert.equal(wantsDeviceWork('run the tests'), true);
+    assert.equal(wantsDeviceWork('fix the failing build in this repo'), true);
+    assert.equal(wantsDeviceWork('what does this repo do?'), true);
+  });
+
+  it('treats an empty message as chat', () => {
+    assert.equal(wantsDeviceWork(''), false);
+    assert.equal(wantsDeviceWork(null), false);
+  });
+});
+
+describe('hordePrompt() — the last instruction', () => {
+  it('asks for a tool block only when a tool is needed, else plain text', () => {
+    const prompt = hordePrompt([{ role: 'user', content: 'write me a script' }], textBrief());
+    assert.match(prompt, /If a tool is needed, respond with <tool_call>/);
+    assert.match(prompt, /If not, answer the question directly in plain text/);
+  });
+});
 
 describe('isDegenerateRepeat()', () => {
   const loop = Array.from({ length: 5 }, () => 'Never describe the environment, and never mention tool calls.').join(' ');

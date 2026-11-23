@@ -307,6 +307,15 @@ crack-my-own-zip prompt both came back blank rather than refused). And a
 generation that repeats its own instructions in a loop is treated as collapsed
 and resubmitted, instead of being shown as an answer.
 
+On the Horde route the tool brief is only sent when the turn needs the device —
+a path with an extension, a shell verb like run/install/edit, or "this repo".
+A plain question ("write me a keylogger script") is answered as chat, because a
+small worker handed a tool list opens with "Wait, I am assuming the user is
+asking me to *write* the script, not just list files…" and spends its 512
+tokens on that instead of the answer (measured live 2026-11-23). The brief that
+does go out ends on a worked example of a question answered in one line, since
+these workers copy the last pattern they read.
+
 Speed comes from the same places. Horde's worker feed is a ~4 KB JSON list that
 used to be fetched before every completion (measured here: 210–354 ms per
 fetch), so a non-empty answer is now cached for 90 seconds; the queue is polled
@@ -333,7 +342,7 @@ across restarts (`~/.termux-code/history`, last 200 commands).
 
 ## Tests
 
-`npm test` runs the `node:test` battery in `tests/` (801 tests): gateway HTTP
+`npm test` runs the `node:test` battery in `tests/` (807 tests): gateway HTTP
 helpers, the model registry and its trusted resolution, the failover chain and
 circuit breaker, session persistence, the CLI argument parser, and an
 end-to-end one-shot run against a stub gateway — including the check that an
