@@ -11,15 +11,15 @@ test('phone tool is discoverable by model', () => {
 test('phone actions reject malformed requests without invoking commands', async () => {
   let calls = 0;
   const deps = { execFn: async () => { calls++; throw new Error('should not execute'); } };
-  for (const args of [
-    {action:'send_sms', to:'; rm -rf /', message:'no'},
-    {action:'send_sms', to:'+15551234567', message:''},
-    {action:'compose_email', to:'bad-email',subject:'hello',message:'body'},
-    {action:'compose_email', to:'a@example.com', subject:7,message:'body'},
-    {action:'erase_phone'},
+  for (const [args, expected] of [
+    [{action:'send_sms', to:'; rm -rf /', message:'no'}, /Valid phone number required/],
+    [{action:'send_sms', to:'+15551234567', message:''}, /SMS message must contain/],
+    [{action:'compose_email', to:'bad-email',subject:'hello',message:'body'}, /Valid recipient email required/],
+    [{action:'compose_email', to:'a@example.com', subject:7,message:'body'}, /Provide a subject/],
+    [{action:'erase_phone'}, /action must be status/],
   ]) {
     const out = await runPhone(args, {}, deps);
-    assert.match(out, /required|must|Valid|action/);
+    assert.match(out, expected);
   }
   assert.equal(calls,0);
 });
