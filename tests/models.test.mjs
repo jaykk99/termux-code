@@ -12,6 +12,9 @@ import {
   fetchGratisfyModels,
   fetchKiloModels,
   fetchErrorInboxModels,
+  fetchHordeLiveModels,
+  hordeParams,
+  listModels,
   setErrorInboxPrefs,
   capabilities,
   resolveModel,
@@ -299,6 +302,76 @@ describe('live model-list fetchers (mocked fetch)', () => {
     it('returns [] when Kilo does not answer', async () => {
       responder = () => jsonRes({ error: 'down' }, { ok: false, status: 502 });
       assert.deepEqual(await fetchKiloModels(), []);
+    });
+  });
+
+  describe('fetchHordeLiveModels()', () => {
+    it('lists the online uncensored workers, biggest first, by real name', async () => {
+      // The complaint that started this: /models on a keyless phone showed one
+      // row, and there was nothing to pick.
+      seen = [];
+      responder = () => jsonRes([
+        { name: 'koboldcpp/L3-8B-Stheno-v3.2-GGUF', count: 2, eta: 0 },
+        { name: 'koboldcpp/L3-70B-Rocinante', count: 1, eta: 40 },
+        { name: 'koboldcpp/Judas-Uncensored-3.2-1B.Q8', count: 3, eta: 1 },
+        { name: ' koboldcpp/L3-70B-Rocinante ', count: 2, eta: 6 },
+        { name: 'google/gemma-4-31b', count: 9, eta: 0 },
+        { name: 'koboldcpp/Gemma-4-E4B-it-Ultra-Uncensored-Heretic', count: 0, eta: 12 },
+      ]);
+      const models = await fetchHordeLiveModels({});
+      assert.deepEqual(models.map((m) => m.id), [
+        'koboldcpp/L3-70B-Rocinante',
+        'koboldcpp/L3-8B-Stheno-v3.2-GGUF',
+        'koboldcpp/Judas-Uncensored-3.2-1B.Q8',
+      ]);
+      assert.equal(models[0].params, 70);
+      assert.equal(models[0].workers, 3); // the two padded rows merge
+      assert.equal(models[1].label, 'L3-8B-Stheno-v3.2-GGUF (8B)');
+      assert.equal(models[0].url, PROVIDERS.horde.url);
+      assert.equal(seen[0].url, 'https://aihorde.net/api/v2/status/models?type=text');
+    });
+
+    it('reads a parameter count out of the worker name', () => {
+      assert.equal(hordeParams('koboldcpp/L3-8B-Stheno-v3.2-GGUF'), 8);
+      assert.equal(hordeParams('koboldcpp/Gemma-4-E4B-it-Ultra-Uncensored-Heretic'), 4);
+      assert.equal(hordeParams('koboldcpp/Judas-Uncensored-3.2-1B.Q8'), 1);
+      assert.equal(hordeParams('someone/mystery-uncensored'), null);
+    });
+
+    it('returns [] when Horde does not answer', async () => {
+      responder = () => jsonRes({ error: 'down' }, { ok: false, status: 502 });
+      assert.deepEqual(await fetchHordeLiveModels({}), []);
+    });
+  });
+
+  describe('listModels()', () => {
+    it('replaces the single "any" row with the live workers, and keeps any as the auto-pick', async () => {
+      responder = (url) => {
+        if (url.includes('aihorde.net')) return jsonRes([{ name: 'koboldcpp/L3-8B-Stheno-v3.2-GGUF', count: 1, eta: 0 }]);
+        return jsonRes({ data: [] });
+      };
+      const list = await listModels({});
+      assert.deepEqual(
+        list.filter((m) => m.provider === 'horde').map((m) => m.id),
+        ['koboldcpp/L3-8B-Stheno-v3.2-GGUF', 'any'],
+      );
+    });
+
+    it('keeps the "any" entry alone when no worker is online', async () => {
+      responder = () => jsonRes({ data: [] });
+      const list = await listModels({});
+      assert.deepEqual(list.filter((m) => m.provider === 'horde').map((m) => m.id), ['any']);
+    });
+
+    it('resolves a pinned worker only while it is online', async () => {
+      seen = [];
+      responder = (url) =>
+        url.includes('aihorde.net') ? jsonRes([{ name: 'koboldcpp/L3-8B-Stheno-v3.2-GGUF', count: 1, eta: 0 }]) : jsonRes({});
+      const hit = await resolveModel({ id: 'koboldcpp/L3-8B-Stheno-v3.2-GGUF', provider: 'horde', source: 'direct' }, {});
+      assert.equal(hit.provider, 'horde');
+      assert.equal(hit.url, PROVIDERS.horde.url);
+      assert.equal(hit.auth, 'horde');
+      assert.equal(await resolveModel({ id: 'koboldcpp/Gone-Uncensored-9B', provider: 'horde', source: 'direct' }, {}), null);
     });
   });
 

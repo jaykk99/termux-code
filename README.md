@@ -163,6 +163,14 @@ pulled from source rather than guessed. Three sources merge in
 3. **Error Inbox live.** `GET {ERROR_INBOX_URL}/api/models` — the actual
    route backing error-inbox's own model switcher, including real recent
    success/fail counts and current pin/disable state.
+4. **AI Horde workers.** Horde's own `status/models` feed, one entry per
+   online uncensored worker (Qwen3.6-35B Heretic, gemma-4-31B Heretic,
+   Rocinante-X-12B, L3-8B Stheno…), biggest first, deduplicated, with the
+   pooled "any uncensored worker" pick kept at the end. Horde is the only
+   keyless route, so on a phone with no keys this *is* the catalogue: it
+   used to be a single nameless "any" row, and picking a worker here
+   restricts the job to that worker (falling back to the rest of the
+   uncensored set if it has gone offline — never to an any-worker job).
 
 All three sources pass through one filter before anything is listed or
 run: **uncensored models only**. Aligned models (GPT, Claude, Gemini and
@@ -342,7 +350,7 @@ across restarts (`~/.termux-code/history`, last 200 commands).
 
 ## Tests
 
-`npm test` runs the `node:test` battery in `tests/` (807 tests): gateway HTTP
+`npm test` runs the `node:test` battery in `tests/` (815 tests): gateway HTTP
 helpers, the model registry and its trusted resolution, the failover chain and
 circuit breaker, session persistence, the CLI argument parser, and an
 end-to-end one-shot run against a stub gateway — including the check that an

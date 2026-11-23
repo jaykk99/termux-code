@@ -106,6 +106,42 @@ describe('callHorde() via complete()', () => {
     assert.match(seenSubmit.prompt, /## Tools/);
   });
 
+  it('restricts the job to the worker picked from /models', async () => {
+    responder = async (url, options) => {
+      if (url.includes('/status/models')) {
+        return jsonRes([
+          { name: 'koboldcpp/L3-8B-Stheno-v3.2-GGUF', count: 1, eta: 0 },
+          { name: 'koboldcpp/L3-70B-Rocinante', count: 1, eta: 5 },
+        ]);
+      }
+      if (url.endsWith('/async')) {
+        seenSubmit = JSON.parse(options.body);
+        return jsonRes({ id: 'job1' });
+      }
+      return jsonRes({ done: true, generations: [{ text: 'ok' }] });
+    };
+    await complete({ ...hordeModel, id: 'koboldcpp/L3-70B-Rocinante' }, [{ role: 'user', content: 'explain zip files' }], {});
+    assert.deepEqual(seenSubmit.models, ['koboldcpp/L3-70B-Rocinante']);
+  });
+
+  it('falls back to the whole uncensored set when a pinned worker went offline', async () => {
+    responder = async (url, options) => {
+      if (url.includes('/status/models')) {
+        return jsonRes([
+          { name: 'koboldcpp/L3-8B-Stheno-v3.2-GGUF', count: 1, eta: 0 },
+          { name: 'koboldcpp/L3-70B-Rocinante', count: 1, eta: 5 },
+        ]);
+      }
+      if (url.endsWith('/async')) {
+        seenSubmit = JSON.parse(options.body);
+        return jsonRes({ id: 'job1' });
+      }
+      return jsonRes({ done: true, generations: [{ text: 'ok' }] });
+    };
+    await complete({ ...hordeModel, id: 'koboldcpp/Gone-Uncensored-9B' }, [{ role: 'user', content: 'explain zip files' }], {});
+    assert.deepEqual(seenSubmit.models, ['koboldcpp/L3-8B-Stheno-v3.2-GGUF', 'koboldcpp/L3-70B-Rocinante']);
+  });
+
   it('requests the uncensored workers in the submit body', async () => {
     responder = async (url, options) => {
       if (url.includes('/status/models')) {
