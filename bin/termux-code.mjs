@@ -452,6 +452,7 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
     if (!reply.toolCalls.length) {
       if (requestContinuation(progress, messages)) {
         console.log(C.dim('  [workflow] Continuing: task has unverified steps.'));
+        if (agent.checkpoint) await agent.checkpoint();
         continue;
       }
       // The model thinks it's done. Check its work if it changed anything.
@@ -537,6 +538,9 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
       if (wroteFiles(call.name, result)) for (const p of pathsFromCall(call)) changed.add(p);
       console.log(toolResult(result, { ok: ok && !/Syntax check failed|JSON syntax error|WARNING:/.test(String(result)) }));
       appendToolResult(messages, model, call, result);
+      // A phone can be killed between any two tool calls: persist each completed
+      // call + result, not just the beginning/end of the entire user turn.
+      if (agent.checkpoint) await agent.checkpoint();
     }
   }
   console.log('\n' + C.red(`Stopped after ${MAX_STEPS} tool steps. Say "continue" to resume.`));
@@ -933,7 +937,7 @@ async function main(workspaceOverride = null) {
       answer = await turn(model, messages, rl, root, () => completeFor(messages), {
         gateway: cfg.gateway,
         gatewayToken: cfg.gatewayToken,
-      }, { verify: verifyState, summarize, verbose: args.verbose || state.verbose, trace: state.trace, mcpServers, spawn: runSubagent });
+      }, { verify: verifyState, summarize, verbose: args.verbose || state.verbose, trace: state.trace, mcpServers, spawn: runSubagent, checkpoint: persist });
     } finally {
       console.log = realLog;
     }
@@ -1453,6 +1457,7 @@ async function main(workspaceOverride = null) {
       trace: state.trace,
       mcpServers,
       spawn: runSubagent,
+      checkpoint: persist,
     });
     await persist();
     console.log('');
