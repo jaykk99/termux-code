@@ -25,6 +25,7 @@ describe('parseArgs()', () => {
         session: null,
         resume: false,
         think: false,
+        reasoning: null,
         maxSteps: null,
         error: undefined,
       }
