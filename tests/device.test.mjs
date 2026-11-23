@@ -17,8 +17,8 @@ describe('Android device input validation', () => {
   it('rejects unsafe actions and bad inputs', () => {
     for (const [args, fragment] of [
       [{ action: 'shell', text: 'rm -rf' }, 'Unknown'],
-      [{ action: 'open_url', url: 'javascript:alert(1)' }, 'HTTP(S)'],
-      [{ action: 'open_url', url: 'https://user:pass@example.com' }, 'HTTP(S)'],
+      [{ action: 'open_url', url: 'javascript:alert(1)' }, 'HTTP'],
+      [{ action: 'open_url', url: 'https://user:pass@example.com' }, 'HTTP'],
       [{ action: 'camera_photo', path: '../secret.jpg' }, 'simple .jpg'],
       [{ action: 'camera_photo', path: '/tmp/out.jpg' }, 'simple .jpg'],
       [{ action: 'camera_photo', path: 'foo.png' }, 'simple .jpg'],
