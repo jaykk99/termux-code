@@ -228,6 +228,24 @@ and `/model` picker both flag these as "chat only, no file access." The
 catalogue API reports the same honestly as `capabilities: { chat, tools }`
 on every model.
 
+## Adaptive reasoning (Termux CLI)
+
+The CLI defaults to **adaptive** execution effort on each user turn. It uses a
+local deterministic task classifier (no extra model call and no user prompts
+sent to a classifier): simple questions use **fast**, routine edits use
+**balanced**, and complex refactors/audits use **deep**. These modes change
+how much planning and verification the agent is instructed to do, plus a
+bounded tool-step budget (8/24/40) and retry budget for failing project
+checks (1/2/3). Any file edits still go through the existing verification
+mechanism. This improves the execution workflow; it does not increase a
+model's underlying intelligence.
+
+Inside the REPL use `/reasoning` to inspect the current setting or
+`/reasoning fast|balanced|deep|adaptive` to choose and persist a setting.
+For a one-shot run use `--reasoning=deep -p "refactor this module"`.
+The explicit `--max-steps` remains an upper limit. Responses to unrelated
+prompts do not accumulate reasoning instructions in saved sessions.
+
 ## Command line
 
 The CLI takes flags, not just slash commands, so it also works from a

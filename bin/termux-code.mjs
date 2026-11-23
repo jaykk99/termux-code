@@ -32,7 +32,8 @@ import { projectInstructions, applyProjectInstructions } from '../lib/project-co
 import { browserDiagnostic } from '../lib/browser.mjs';
 import { connectGithubRepo, resolveLocalRepo } from '../lib/repo-connector.mjs';
 import { createTaskProgress, observeTaskTool, requestContinuation } from '../lib/task-progress.mjs';
-import { selectEffort, effortConfig, effortInstruction, EFFORT_MODES } from '../lib/effort.mjs';
+import { effortConfig, effortInstruction, EFFORT_MODES } from '../lib/effort.mjs';
+import { REASONING_MODES, reasoningPolicy, withReasoningNote } from '../lib/reasoning.mjs';
 
 const CONFIG_DIR = path.join(os.homedir(), '.termux-code');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
@@ -374,7 +375,8 @@ export async function turn(model, messages, rl, root, completeFn, gateway = {}, 
   let protocolRetries = 0;
   const originalRequest = [...messages].reverse().find(m => m?.role === 'user' && typeof m.content === 'string')?.content || '';
   const progress = createTaskProgress(originalRequest);
-  for (let step = 0; step < MAX_STEPS; step++) {
+  const stepLimit = agent.reasoning?.maxSteps ?? MAX_STEPS;
+  for (let step = 0; step < stepLimit; step++) {
     // Plan-first is opt-in, and the note in the system block alone was not
     // enough: a live worker read it, then went straight at the file without
     // writing TODO.md. Put the first step in the ask itself (the last thing
@@ -487,8 +489,9 @@ export async function turn(model, messages, rl, root, completeFn, gateway = {}, 
       // report it (and set its exit code); null means the turn failed.
       const v = agent.verify;
       if (!changed.size || !v?.enabled || !v.command) return reply.text ?? '';
-      if (verifyAttempts >= MAX_VERIFY_ATTEMPTS) {
-        console.log(C.red(`\n  [verify] still failing after ${MAX_VERIFY_ATTEMPTS} fix attempts. Stopping here so you can take a look.`));
+      const verifyLimit = agent.reasoning?.maxVerifyAttempts ?? MAX_VERIFY_ATTEMPTS;
+      if (verifyAttempts >= verifyLimit) {
+        console.log(C.red(`\n  [verify] still failing after ${verifyLimit} fix attempts. Stopping here so you can take a look.`));
         return null;
       }
       if (!v.approved) {
@@ -509,7 +512,7 @@ export async function turn(model, messages, rl, root, completeFn, gateway = {}, 
         return reply.text ?? '';
       }
       console.log(toolResult(output.split('\n').slice(-12).join('\n'), { ok: false }));
-      messages.push({ role: 'user', content: failureMessage(v.command, output, verifyAttempts, MAX_VERIFY_ATTEMPTS, changed) });
+      messages.push({ role: 'user', content: failureMessage(v.command, output, verifyAttempts, verifyLimit, changed) });
       continue;
     }
 
@@ -575,7 +578,7 @@ export async function turn(model, messages, rl, root, completeFn, gateway = {}, 
       if (agent.checkpoint) await agent.checkpoint();
     }
   }
-  console.log('\n' + C.red(`Stopped after ${MAX_STEPS} tool steps. Say "continue" to resume.`));
+  console.log('\n' + C.red(`Stopped after ${stepLimit} tool steps. Say "continue" to resume.`));
   return null;
 }
 
@@ -597,7 +600,8 @@ const HELP = [
   ['/session <n>', 'resume a session by number or id'],
   ['/new', 'start a new session'],
   ['/think', 'toggle plan-first mode (TODO.md plan, then work the steps)'],
-  ['/effort <mode>', 'adaptive thinking: auto, fast, balanced, or deep'],
+  ['/reasoning [adaptive|fast|balanced|deep]', 'choose execution effort (adaptive by default)'],
+  ['/effort <mode>', 'alias for /reasoning: auto, fast, balanced, or deep'],
   ['/model-info', 'show selected model provenance and verification limits'],
   ['/keys', 'show which provider keys are set'],
   ['/key NAME value', 'save a provider key (VENICE_API_KEY, OPENROUTER_API_KEY, …)'],
@@ -836,7 +840,23 @@ async function main(workspaceOverride = null) {
    * Session-level switches that the REPL can change at runtime. Quiet is
    * the default: a failed provider is a detail, not news.
    */
-  const state = { verbose: Boolean(args.verbose), think: Boolean(args.think), effort: 'auto', turnEffort: 'fast' };
+  // One setting, two names: /reasoning picks the mode, /effort is its alias.
+  // The mode drives the per-turn policy (step and verify budgets) and, through
+  // state.turnEffort, the failover/timeout effort the model call sees.
+  const state = {
+    verbose: Boolean(args.verbose),
+    think: Boolean(args.think),
+    reasoning: args.reasoning ?? (REASONING_MODES.includes(cfg.reasoning) ? cfg.reasoning : 'adaptive'),
+    turnEffort: 'fast',
+  };
+  const prepareReasoning = (text, transcript = messages) => {
+    const policy = reasoningPolicy(text, state.reasoning, MAX_STEPS);
+    state.turnEffort = policy.effort;
+    if (transcript[0]?.role === 'system') {
+      transcript[0] = { ...transcript[0], content: withReasoningNote(transcript[0].content, policy.effort) };
+    }
+    return policy;
+  };
   refreshProjectContext();
   // Plan-first: the note rides on the system prompt, so every turn of the
   // session sees it — including the tool results the model reads back.
@@ -965,7 +985,7 @@ async function main(workspaceOverride = null) {
   // One prompt, no REPL. Exit 0 only when the turn actually produced an
   // answer, so `termux-code -p ...` is usable from a script.
   if (oneShot) {
-    state.turnEffort = selectEffort(prompt, state.effort);
+    const reasoning = prepareReasoning(prompt);
     messages.push({ role: 'user', content: prompt });
     await persist();
     const realLog = console.log;
@@ -975,7 +995,7 @@ async function main(workspaceOverride = null) {
       answer = await turn(model, messages, rl, root, () => completeFor(messages), {
         gateway: cfg.gateway,
         gatewayToken: cfg.gatewayToken,
-      }, { verify: verifyState, summarize, verbose: args.verbose || state.verbose, trace: state.trace, think: state.think, mcpServers, spawn: runSubagent, checkpoint: persist });
+      }, { verify: verifyState, summarize, verbose: args.verbose || state.verbose, trace: state.trace, think: state.think, mcpServers, spawn: runSubagent, checkpoint: persist, reasoning });
     } finally {
       console.log = realLog;
     }
@@ -989,7 +1009,8 @@ async function main(workspaceOverride = null) {
           model: model.id,
           provider: model.provider,
           source: model.source,
-          steps: MAX_STEPS,
+          steps: reasoning.maxSteps,
+          reasoning: reasoning.effort,
           savedSession: session.meta.id || null,
         })
       );
@@ -1015,6 +1036,21 @@ async function main(workspaceOverride = null) {
           ) +
           '\n'
       );
+      continue;
+    }
+
+    if (input === '/reasoning' || input.startsWith('/reasoning ')) {
+      const choice = input.slice('/reasoning'.length).trim().toLowerCase();
+      if (!choice) {
+        console.log(C.dim(`  reasoning: ${state.reasoning} (adaptive chooses fast/balanced/deep per prompt)\n`));
+      } else if (!REASONING_MODES.includes(choice)) {
+        console.log(C.dim('  Usage: /reasoning adaptive|fast|balanced|deep\n'));
+      } else {
+        state.reasoning = choice;
+        cfg.reasoning = choice;
+        await saveConfig(cfg);
+        console.log(C.dim(`  reasoning set to ${choice}\n`));
+      }
       continue;
     }
 
@@ -1209,9 +1245,9 @@ async function main(workspaceOverride = null) {
 
     if (input === '/effort' || input.startsWith('/effort ')) {
       const wanted = input.slice('/effort'.length).trim().toLowerCase();
-      if (!wanted) console.log(C.dim('  Thinking effort: ' + state.effort + ' (auto chooses by task)\n'));
+      if (!wanted) console.log(C.dim('  Thinking effort: ' + state.reasoning + ' (adaptive chooses by task)\n'));
       else if (EFFORT_MODES.includes(wanted)) {
-        state.effort = wanted;
+        state.reasoning = wanted === 'auto' ? 'adaptive' : wanted;
         console.log(C.dim('  Thinking effort set to ' + wanted + '.\n'));
       } else console.log(C.dim('  Usage: /effort auto|fast|balanced|deep\n'));
       continue;
@@ -1482,7 +1518,8 @@ async function main(workspaceOverride = null) {
       continue;
     }
 
-    state.turnEffort = selectEffort(input, state.effort);
+    const reasoning = prepareReasoning(input);
+    console.log(C.dim(`  [reasoning] ${reasoning.effort} · up to ${reasoning.maxSteps} steps`));
     messages.push({ role: 'user', content: input });
     // Save the user's message BEFORE the turn runs: if Termux is killed
     // mid-turn, the old code only persisted after turn() returned, so the
@@ -1514,6 +1551,7 @@ async function main(workspaceOverride = null) {
       mcpServers,
       spawn: runSubagent,
       checkpoint: persist,
+      reasoning,
     });
     await persist();
     console.log('');
