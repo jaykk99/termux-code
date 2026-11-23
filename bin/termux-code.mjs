@@ -31,6 +31,7 @@ import { connectAll, loadMcpConfig, parseQualified, runMcpTool, toolsForOpenAI a
 import { projectInstructions, applyProjectInstructions } from '../lib/project-context.mjs';
 import { browserDiagnostic } from '../lib/browser.mjs';
 import { connectGithubRepo, resolveLocalRepo } from '../lib/repo-connector.mjs';
+import { createTaskProgress, observeTaskTool, requestContinuation } from '../lib/task-progress.mjs';
 
 const CONFIG_DIR = path.join(os.homedir(), '.termux-code');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
@@ -361,6 +362,8 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
   const changed = new Set();
   let verifyAttempts = 0;
   let protocolRetries = 0;
+  const originalRequest = [...messages].reverse().find(m => m?.role === 'user' && typeof m.content === 'string')?.content || '';
+  const progress = createTaskProgress(originalRequest);
   for (let step = 0; step < MAX_STEPS; step++) {
     // Compact BEFORE the call, so a long session shrinks instead of
     // overflowing a small model's context window.
@@ -447,6 +450,10 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
     }
 
     if (!reply.toolCalls.length) {
+      if (requestContinuation(progress, messages)) {
+        console.log(C.dim('  [workflow] Continuing: task has unverified steps.'));
+        continue;
+      }
       // The model thinks it's done. Check its work if it changed anything.
       // Every exit below returns the final answer so a one-shot run can
       // report it (and set its exit code); null means the turn failed.
@@ -454,7 +461,7 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
       if (!changed.size || !v?.enabled || !v.command) return reply.text ?? '';
       if (verifyAttempts >= MAX_VERIFY_ATTEMPTS) {
         console.log(C.red(`\n  [verify] still failing after ${MAX_VERIFY_ATTEMPTS} fix attempts. Stopping here so you can take a look.`));
-        return reply.text ?? null;
+        return null;
       }
       if (!v.approved) {
         v.approved = await approve(rl, `Verify changes: run \`${v.command}\` (asked once per session)`, v.command);
@@ -509,13 +516,13 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
         } else if (parseQualified(call.name)) {
           // A remote MCP tool: approved like any other outbound action, then
           // run through lib/mcp.mjs against the server that owns the name.
-          result = await runMcpTool(mcpServers, call.name, call.args, (d, detail) => approve(rl, d, detail));
+          result = await runMcpTool(agent.mcpServers || [], call.name, call.args, (d, detail) => approve(rl, d, detail));
         } else {
           result = await runTool(call.name, call.args, {
             root,
             approve: (d, detail) => approve(rl, d, detail),
             // The task tool: a sub-agent with a fresh context (set up below).
-            spawn: (p, c) => runSubagent(p, c),
+            spawn: agent.spawn,
             // Only the browser tool reads these: its no-Chromium read
             // fallback goes through the gateway, like Composio does.
             gateway: gateway.gateway,
@@ -526,6 +533,7 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
         result = `Error: ${err.message}`;
         ok = false;
       }
+      observeTaskTool(progress, call.name, call.args, result);
       if (wroteFiles(call.name, result)) for (const p of pathsFromCall(call)) changed.add(p);
       console.log(toolResult(result, { ok: ok && !/Syntax check failed|JSON syntax error|WARNING:/.test(String(result)) }));
       appendToolResult(messages, model, call, result);
@@ -904,7 +912,7 @@ async function main(workspaceOverride = null) {
         root,
         () => completeFor(sub),
         { gateway: cfg.gateway, gatewayToken: cfg.gatewayToken },
-        { verify: { ...verifyState, enabled: false }, summarize, verbose: false, trace: state.trace }
+        { verify: { ...verifyState, enabled: false }, summarize, verbose: false, trace: state.trace, mcpServers }
       );
       const report = typeof out === 'string' ? out : String(out?.text ?? '');
       return report.trim().slice(0, 4000) || 'The sub-agent returned nothing.';
@@ -925,7 +933,7 @@ async function main(workspaceOverride = null) {
       answer = await turn(model, messages, rl, root, () => completeFor(messages), {
         gateway: cfg.gateway,
         gatewayToken: cfg.gatewayToken,
-      }, { verify: verifyState, summarize, verbose: args.verbose || state.verbose, trace: state.trace });
+      }, { verify: verifyState, summarize, verbose: args.verbose || state.verbose, trace: state.trace, mcpServers, spawn: runSubagent });
     } finally {
       console.log = realLog;
     }
@@ -1443,6 +1451,8 @@ async function main(workspaceOverride = null) {
       summarize,
       verbose: state.verbose,
       trace: state.trace,
+      mcpServers,
+      spawn: runSubagent,
     });
     await persist();
     console.log('');
