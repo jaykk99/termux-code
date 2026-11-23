@@ -254,3 +254,107 @@ describe('one-shot runs act without asking', () => {
     }
   });
 });
+
+/**
+ * A remote MCP server, in-process: initialize, tools/list, tools/call.
+ * Enough for connectAll() and one echo call. The CLI fetches it on startup
+ * from the project's .mcp.json, exactly as a real server would be reached.
+ */
+function stubMcpServer() {
+  const server = http.createServer((req, res) => {
+    let raw = '';
+    req.on('data', (c) => (raw += c));
+    req.on('end', () => {
+      let msg = {};
+      try {
+        msg = JSON.parse(raw || '{}');
+      } catch {
+        /* fall through to an empty result */
+      }
+      const result =
+        msg.method === 'initialize'
+          ? { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'demo', version: '1.0.0' } }
+          : msg.method === 'tools/list'
+            ? {
+                tools: [
+                  {
+                    name: 'echo',
+                    description: 'Echo text back',
+                    inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+                  },
+                ],
+              }
+            : msg.method === 'tools/call'
+              ? { content: [{ type: 'text', text: `echo: ${msg.params?.arguments?.text ?? ''}` }] }
+              : {};
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result }));
+    });
+  });
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => resolve({ server, url: `http://127.0.0.1:${server.address().port}` }));
+  });
+}
+
+/**
+ * turn() is module-level, so it cannot see main()'s locals: the `task` tool
+ * and the MCP dispatch both used to throw "... is not defined" on every
+ * call. The unit suites call the tool runner directly and never noticed, so
+ * these two drive the real binary with a stub gateway asking for each tool.
+ */
+describe('sub-agents and MCP tools in a real run', () => {
+  const toolCall = (name, args) => ({
+    text: `Let me call ${name}.`,
+    toolCalls: [{ name, args }],
+    assistantMessage: { role: 'assistant', content: `Let me call ${name}.` },
+  });
+
+  it('runs the task tool as a sub-agent instead of throwing', async () => {
+    const stub = await stubGateway([toolCall('task', { prompt: 'list the files' }), FINAL]);
+    const ctx = await sandbox(stub.url);
+    try {
+      const out = await runCli(['-p', 'delegate the listing', '-n', '4'], ctx);
+      assert.equal(out.code, 0, out.stderr);
+      assert.doesNotMatch(`${out.stdout}${out.stderr}`, /is not defined/);
+      assert.match(out.stdout, /STUB ANSWER/);
+    } finally {
+      await new Promise((r) => stub.server.close(r));
+    }
+  });
+
+  it('dispatches an mcp__server__tool call through the project .mcp.json', async () => {
+    const mcp = await stubMcpServer();
+    const stub = await stubGateway([toolCall('mcp__demo__echo', { text: 'hello-mcp' }), FINAL]);
+    const ctx = await sandbox(stub.url);
+    try {
+      await fs.writeFile(
+        path.join(ctx.project, '.mcp.json'),
+        JSON.stringify({ mcpServers: { demo: { url: `${mcp.url}/mcp` } } }),
+        'utf8'
+      );
+      const out = await runCli(['-p', 'echo through mcp', '-n', '4'], ctx);
+      assert.equal(out.code, 0, out.stderr);
+      assert.doesNotMatch(`${out.stdout}${out.stderr}`, /is not defined/);
+      assert.match(out.stdout, /echo: hello-mcp/);
+    } finally {
+      await new Promise((r) => stub.server.close(r));
+      await new Promise((r) => mcp.server.close(r));
+    }
+  });
+
+  it('--think puts the plan step into the ask, not only the system note', async () => {
+    const stub = await stubGateway([FINAL]);
+    const ctx = await sandbox(stub.url);
+    try {
+      const out = await runCli(['--think', '-p', 'add a flag'], ctx);
+      assert.equal(out.code, 0, out.stderr);
+      const sent = stub.seen[0];
+      assert.ok(
+        sent.messages.some((m) => m.role === 'user' && /TODO\.md/.test(String(m.content))),
+        'the plan instruction must reach the model as part of the ask'
+      );
+    } finally {
+      await new Promise((r) => stub.server.close(r));
+    }
+  });
+});

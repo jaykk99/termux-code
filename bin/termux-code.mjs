@@ -8,7 +8,7 @@
  */
 
 import readline from 'node:readline';
-import { promises as fs } from 'node:fs';
+import { promises as fs, existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import process from 'node:process';
@@ -359,6 +359,19 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
   let verifyAttempts = 0;
   let protocolRetries = 0;
   for (let step = 0; step < MAX_STEPS; step++) {
+    // Plan-first is opt-in, and the note in the system block alone was not
+    // enough: a live worker read it, then went straight at the file without
+    // writing TODO.md. Put the first step in the ask itself (the last thing
+    // the model sees), once per session, so the plan is a tool call rather
+    // than a suggestion it can skim past.
+    if (step === 0 && agent.think && !agent.planAsked && !existsSync(path.join(root, 'TODO.md'))) {
+      agent.planAsked = true;
+      messages.push({
+        role: 'user',
+        content:
+          'Before anything else, call write_file to save your plan as TODO.md: a numbered list of at most 5 steps for this task. Then start step 1.',
+      });
+    }
     // Compact BEFORE the call, so a long session shrinks instead of
     // overflowing a small model's context window.
     if (needsCompaction(messages)) {
@@ -476,7 +489,7 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
     }
 
     for (const call of reply.toolCalls) {
-      const arg = call.args.path || call.args.command || call.args.pattern || call.args.tool_slug || call.args.query || call.args.url || call.args.selector || '';
+      const arg = call.args.path || call.args.command || call.args.pattern || call.args.prompt || call.args.tool_slug || call.args.query || call.args.url || call.args.selector || '';
       console.log('\n' + toolHeader(call.name, arg));
       let result;
       let ok = true;
@@ -506,13 +519,18 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
         } else if (parseQualified(call.name)) {
           // A remote MCP tool: approved like any other outbound action, then
           // run through lib/mcp.mjs against the server that owns the name.
-          result = await runMcpTool(mcpServers, call.name, call.args, (d, detail) => approve(rl, d, detail));
+          // The servers come through the agent context: turn() is module-level,
+          // so it cannot see main()'s local list (it used to throw
+          // "mcpServers is not defined" on every MCP call).
+          result = await runMcpTool(agent.mcpServers || [], call.name, call.args, (d, detail) => approve(rl, d, detail));
         } else {
           result = await runTool(call.name, call.args, {
             root,
             approve: (d, detail) => approve(rl, d, detail),
-            // The task tool: a sub-agent with a fresh context (set up below).
-            spawn: (p, c) => runSubagent(p, c),
+            // The task tool: a sub-agent with a fresh context (set up in
+            // main() and handed in through the agent context — turn() cannot
+            // see that local binding itself).
+            spawn: agent.spawn,
             // Only the browser tool reads these: its no-Chromium read
             // fallback goes through the gateway, like Composio does.
             gateway: gateway.gateway,
@@ -893,7 +911,9 @@ async function main() {
         root,
         () => completeFor(sub),
         { gateway: cfg.gateway, gatewayToken: cfg.gatewayToken },
-        { verify: { ...verifyState, enabled: false }, summarize, verbose: false, trace: state.trace }
+        // No spawn: a sub-agent must not start another one, or a misbehaving
+        // model can nest tasks until the step budget is the only limit.
+        { verify: { ...verifyState, enabled: false }, summarize, verbose: false, trace: state.trace, mcpServers }
       );
       const report = typeof out === 'string' ? out : String(out?.text ?? '');
       return report.trim().slice(0, 4000) || 'The sub-agent returned nothing.';
@@ -914,7 +934,7 @@ async function main() {
       answer = await turn(model, messages, rl, root, () => completeFor(messages), {
         gateway: cfg.gateway,
         gatewayToken: cfg.gatewayToken,
-      }, { verify: verifyState, summarize, verbose: args.verbose || state.verbose, trace: state.trace });
+      }, { verify: verifyState, summarize, verbose: args.verbose || state.verbose, trace: state.trace, think: state.think, spawn: runSubagent, mcpServers });
     } finally {
       console.log = realLog;
     }
@@ -1367,6 +1387,9 @@ async function main() {
       summarize,
       verbose: state.verbose,
       trace: state.trace,
+      think: state.think,
+      spawn: runSubagent,
+      mcpServers,
     });
     await persist();
     console.log('');
