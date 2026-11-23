@@ -96,10 +96,9 @@ describe('callHorde() via complete()', () => {
     assert.match(seenSubmit.prompt, /- (bash|browser)\(/);
   });
 
-  it('asks again without the tool list when a worker only describes the plan', async () => {
-    // Live 2026-11-23: with the brief in the prompt a worker answered "I'll
-    // write the script and save it to your home directory." — no call, no
-    // code, a dead turn. The rescue ask has no tool list and does answer.
+  it('asks again WITH tool definitions when a worker only describes a plan', async () => {
+    // A stalled Horde completion must retain tool definitions on retry.
+    // Dropping them made the agent chat-only at exactly the wrong moment.
     const prompts = [];
     responder = async (url, options) => {
       if (url.includes('/status/models')) return jsonRes([{ name: 'koboldcpp/L3-8B-Stheno-v3.2-GGUF', count: 1, eta: 0 }]);
@@ -107,14 +106,15 @@ describe('callHorde() via complete()', () => {
         prompts.push(JSON.parse(options.body).prompt);
         return jsonRes({ id: `job${prompts.length}` });
       }
-      const text = url.includes('job2') ? '```python\nimport zipfile\n```' : "I'll write the script and save it to your home directory.";
+      const text = url.includes('job2') ? '<tool_call>{"name":"list_dir","args":{"path":"."}}</tool_call>' : "I'll write the script and save it to your home directory.";
       return jsonRes({ done: true, generations: [{ text }] });
     };
     const reply = await complete(hordeModel, [{ role: 'user', content: 'write a zip cracker' }], {});
     assert.equal(prompts.length, 2);
     assert.match(prompts[0], /## Tools/);
-    assert.doesNotMatch(prompts[1], /## Tools/);
-    assert.match(reply.text, /zipfile/);
+    assert.match(prompts[1], /## Tools/);
+    assert.match(prompts[1], /performed no action/);
+    assert.equal(reply.toolCalls[0]?.name, 'list_dir');
   });
 
   it('keeps the tool brief when the prompt names a file to work on', async () => {

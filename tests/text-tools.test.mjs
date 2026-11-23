@@ -107,6 +107,21 @@ describe('parseTextToolCalls', () => {
     assert.deepEqual(r.calls[1].args, { path: 'a', content: 'b' });
   });
 
+  it('accepts a complete JSON array of recognized calls from text-only models', () => {
+    const r = parseTextToolCalls('[{"name":"read_file","args":{"path":"a.js"}},{"name":"bash","args":{"command":"ls"}}]');
+    assert.deepEqual(r.calls.map(c => c.name), ['read_file', 'bash']);
+    assert.equal(r.text, '');
+    assert.deepEqual(r.errors, []);
+  });
+
+  it('does not execute JSON arrays embedded in explanations or containing unknown tools', () => {
+    const sample = '[{"name":"bash","args":{"command":"ls"}}]';
+    assert.equal(parseTextToolCalls('Example: ' + sample).calls.length, 0);
+    assert.equal(parseTextToolCalls('```json\\n' + sample + '\\n```').calls.length, 0);
+    assert.equal(parseTextToolCalls('[{"name":"unknown","args":{}}]').calls.length, 0);
+    assert.equal(parseTextToolCalls('[{"name":"bash","args":{}},{"name":"unknown","args":{}}]').calls.length, 0);
+  });
+
   it('leaves JSON that names no real tool in the visible text', () => {
     const r = parseTextToolCalls('{"name": "not_a_tool", "args": {}}');
     assert.equal(r.calls.length, 0);

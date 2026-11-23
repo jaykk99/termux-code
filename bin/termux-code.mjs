@@ -36,6 +36,7 @@ import { effortConfig, effortInstruction, EFFORT_MODES } from '../lib/effort.mjs
 import { REASONING_MODES, reasoningPolicy, withReasoningNote } from '../lib/reasoning.mjs';
 import { memoryNote, withMemory } from '../lib/frontier.mjs';
 import { discoverReconSettings, runReconTool, validateReconUrl, withReconHint } from '../lib/recon.mjs';
+import { startLocalRecon } from '../lib/recon-service.mjs';
 
 const CONFIG_DIR = path.join(os.homedir(), '.termux-code');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
@@ -500,12 +501,16 @@ export async function turn(model, messages, rl, root, completeFn, gateway = {}, 
     // object buried in prose: tell the model and let it resend, instead of
     // ending the turn on text nobody can act on. Two asks is the cap; after
     // that the prose is the answer rather than a slow model looping.
-    if (!reply.toolCalls.length && reply.textProtocolErrors?.length && protocolRetries < 2) {
+    if (!reply.toolCalls.length && reply.textProtocolErrors?.length) {
+      if (protocolRetries >= 2) {
+        console.log(C.red('  [tools] This model failed to format tool requests after two retries. No action was executed. Use /model-info and choose a native-tool-capable provider with /model.\\n'));
+        return null;
+      }
       protocolRetries += 1;
-      console.log(C.dim(`  [tools] ${reply.textProtocolErrors.length} tool call(s) not written as <tool_call>, asking the model to resend`));
+      console.log(C.dim(`  [tools] ${reply.textProtocolErrors.length} unwrapped tool request(s); no action executed. Retrying in <tool_call> format (${protocolRetries}/2).`));
       messages.push({
         role: 'user',
-        content: `<tool_result name="error">\nA tool call in your reply could not be read as one:\n${reply.textProtocolErrors[0]}\nSend it as <tool_call>{"name": "...", "args": {...}}</tool_call> with valid JSON and no other text around it.\n</tool_result>`,
+        content: `<tool_result name="error">\nThe proposed tool request was NOT executed:\n${reply.textProtocolErrors[0]}\nTo ACT, send ONLY <tool_call>{"name":"list_dir","args":{"path":"."}}</tool_call> (replace the example with the intended known tool and its valid args), then STOP. Do not explain, describe, fence, or simulate the call.\n</tool_result>`,
       });
       stillWorking = true;
       continue;
@@ -683,6 +688,7 @@ export const HELP = [
   ['/cwd', 'show the workspace root'],
   ['/repo <owner/repo|path>', 'connect to a GitHub or local repository workspace'],
   ['/recon', 'check the ReconAnything scanner connection'],
+  ['/recon start', 'launch an installed local ReconAnything scanner'],
   ['/recon url <url>', 'set the local/LAN ReconAnything backend URL'],
   ['/recon code <code>', 'save the ReconAnything owner access code'],
   ['/recon active on', 'explicitly permit active scans for this session'],
@@ -1161,7 +1167,7 @@ async function main(workspaceOverride = null) {
         await saveConfig({ ...cfg, modelId: model.id, modelSource: model.source });
       }
       const note = NO_TOOLS.has(model.provider)
-        ? C.dim(' — no native tool calling; uses the text tool protocol')
+        ? C.dim(' — tools via text protocol (experimental; model may ignore calls)')
         : '';
       console.log(`${C.amber('⏺')} ${model.label}${note}\n`);
       continue;
@@ -1355,6 +1361,9 @@ async function main(workspaceOverride = null) {
 
     if (input === '/model-info') {
       console.log(C.dim('  Selected: ' + model.provider + '/' + model.id + ' (' + model.source + ')\n' +
+        (NO_TOOLS.has(model.provider)
+          ? '  Tools: text protocol only, no native function calling. For reliable agent actions choose a tool-capable model.\n'
+          : '  Tools: native function calling (where supported by the selected endpoint).\n') +
         '  Classification: model name/provider allowlist. This is not proof that a hosted model is unfiltered; providers can change routing and models may decline requests.\n'));
       continue;
     }
@@ -1609,7 +1618,10 @@ async function main(workspaceOverride = null) {
 
     if (input.startsWith('/recon ')) {
       const command = input.slice('/recon '.length).trim();
-      if (command === 'on' || command === 'off') {
+      if (command === 'start') {
+        const started = await startLocalRecon(cfg);
+        console.log('\n' + box(wrap(started.message, width() - 6), { title: started.ok ? C.green('ReconAnything ready') : C.amber('ReconAnything startup') }) + '\n');
+      } else if (command === 'on' || command === 'off') {
         cfg.reconDisabled = command === 'off';
         if (cfg.reconDisabled) reconActive = false;
         await saveConfig(cfg);
@@ -1633,7 +1645,7 @@ async function main(workspaceOverride = null) {
         await saveConfig(cfg);
         console.log(C.dim('  ReconAnything access code ' + (code === 'off' ? 'cleared' : 'saved (not shown)') + '.\n'));
       } else {
-        console.log(C.dim('  Usage: /recon, /recon on|off, /recon url <http(s)://host:8000>, /recon code <code>|off, /recon active on|off\n'));
+        console.log(C.dim('  Usage: /recon, /recon start, /recon on|off, /recon url <http(s)://host:8000>, /recon code <code>|off, /recon active on|off\n'));
       }
       continue;
     }

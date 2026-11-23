@@ -26,6 +26,14 @@ bash local-run/termux-setup.sh    # one-time
 bash local-run/termux-start.sh    # leave running
 ```
 
+After the one-time setup, you can start a same-phone installation **from inside
+termux-code** with `/recon start` and then check `/recon`. It launches the
+existing local checkout as a detached process and saves a PID and startup log
+under `~/.termux-code/`; it does **not** automatically clone repositories,
+install packages, run an external service, or start the scanner on Linux.
+If setup was never completed, `/recon start` tells you which setup command
+to run. If startup fails, inspect `~/.termux-code/recon-anything.log`.
+
 The API runs on port **8000**. The UI runs on **3000**, which is *not* the
 port to configure in the agent. If ReconAnything is instead running on Linux,
 run `RECON_BIND_HOST=0.0.0.0 bash local-run/linux-start.sh` there to
@@ -81,8 +89,7 @@ and `/recon active off` to turn active scanning off without restarting.
 
 ## Troubleshooting
 
-- `/recon` reports unavailable: start the scanner and check that port 8000 is
-  accessible to the phone, or update the URL.
+- `/recon` reports unavailable: try `/recon start` for an installed scanner on the same phone, or start the scanner separately and check that port 8000 is accessible to the phone. If your scanner is running on Linux, set the LAN URL instead.
 - HTTP 401: set the current access code with `/recon code ...`. If the backend
   uses a GitHub-cookie-only sign-in mode instead of the local access-code gate,
   use its local deployment or another supported authentication configuration.
@@ -95,3 +102,14 @@ and `/recon active off` to turn active scanning off without restarting.
 Automated tests use a stub backend. They check request/response contracts,
 authorization, scan-mode gating and findings parsing, **not** a live scan on
 your phone.
+
+## Model tool compatibility
+
+AI Horde models such as hosted Gemma Heretic workers do **not** expose native
+function calling. The CLI offers them a text-based `<tool_call>` protocol and
+can run properly formatted tool requests, but the model may ignore the
+instructions; selecting a different model cannot add native capability to the
+provider. `/model-info` explains the selected route. For reliable multi-step
+coding or scanning, use a model/provider with native tool support. A stalled
+Horde plan now gets a retry **with** its tool protocol preserved rather than
+silently downgrading to chat-only.

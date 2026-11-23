@@ -167,6 +167,35 @@ describe('turn() — budget checkpoints keep a multi-step task going', () => {
     assistantMessage: { role: 'assistant', content: '' },
   });
 
+  it('fails closed when a text-only model repeatedly emits unwrapped tool objects', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'tc-format-'));
+    let attempts = 0;
+    try {
+      const { out, lines } = await captureLog(() => turn(
+        fakeModel,
+        system(),
+        null,
+        root,
+        async () => {
+          attempts++;
+          return {
+            text: 'I will act: {"name":"bash","args":{"command":"ls"}}',
+            toolCalls: [],
+            textProtocolErrors: ['{"name":"bash","args":{"command":"ls"}}'],
+            assistantMessage: { role: 'assistant', content: 'invalid tool format' },
+          };
+        },
+        {},
+        { maxSteps: 8, autoContinue: false, verify: { enabled: false } },
+      ));
+      assert.equal(attempts, 3, 'only two resend attempts');
+      assert.equal(out, null, 'must not mark a task successful without a real call');
+      assert.ok(lines.some(line => line.includes('No action was executed')));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('carries on past the first window while tools are still being used', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'tc-turn-'));
     let calls = 0;
