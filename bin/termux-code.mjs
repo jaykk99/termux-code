@@ -35,7 +35,7 @@ import { createTaskProgress, observeTaskTool, requestContinuation } from '../lib
 import { effortConfig, effortInstruction, EFFORT_MODES } from '../lib/effort.mjs';
 import { REASONING_MODES, reasoningPolicy, withReasoningNote } from '../lib/reasoning.mjs';
 import { memoryNote, withMemory } from '../lib/frontier.mjs';
-import { reconSettings, runReconTool, validateReconUrl, withReconHint } from '../lib/recon.mjs';
+import { discoverReconSettings, runReconTool, validateReconUrl, withReconHint } from '../lib/recon.mjs';
 
 const CONFIG_DIR = path.join(os.homedir(), '.termux-code');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
@@ -769,7 +769,7 @@ async function main(workspaceOverride = null) {
   const root = process.cwd();
   const cfg = await loadConfig();
   let reconActive = false; // session-only: active scanning must be explicitly enabled
-  const currentRecon = () => reconSettings(cfg);
+  const currentRecon = () => discoverReconSettings(cfg);
 
   // Bro (Jay's uncensored gateway) comes from ~/.termux-code/config.json
   // — set by the installer (TERMUX_CODE_BRO_URL / TERMUX_CODE_BRO_CODE)
@@ -1596,7 +1596,7 @@ async function main(workspaceOverride = null) {
     }
 
     if (input === '/recon' || input === '/recon status') {
-      const settings = currentRecon();
+      const settings = await currentRecon();
       if (!settings.enabled) {
         console.log(C.dim('  ReconAnything disabled. /recon on to enable.\n'));
       } else {
