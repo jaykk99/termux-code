@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { TOOL_SCHEMA, runTool } from '../lib/tools.mjs';
 import {
-  RECON_TOOL, isReconIntent, reconSettings, runReconTool, validateReconUrl, withReconHint,
+  RECON_TOOL, discoverReconSettings, isReconIntent, reconSettings, runReconTool, validateReconUrl, withReconHint,
 } from '../lib/recon.mjs';
 
 const recon = { enabled: true, url: 'http://127.0.0.1:8000', code: 'private-access-code' };
@@ -36,6 +36,27 @@ describe('ReconAnything routing', () => {
     assert.throws(() => validateReconUrl('http://public.example:8000'), /Plain HTTP/);
     assert.throws(() => validateReconUrl('https://user:pass@example.com'), /without credentials/);
     assert.throws(() => validateReconUrl('http://127.0.0.1:8000/api/runs'), /origin/);
+  });
+
+  it('automatically reads the local installed backend code only for loopback URLs', async () => {
+    const seen = [];
+    const readFile = async (file) => {
+      seen.push(file);
+      if (file.includes('recon-anything/.local-access-code')) return 'auto-local-code\n';
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    };
+    const discovered = await discoverReconSettings({}, {}, { home: '/tmp/fake-home', readFile });
+    assert.equal(discovered.code, 'auto-local-code');
+    assert.ok(seen[0].includes('recon-anything'));
+    const remote = await discoverReconSettings({ reconApiUrl: 'https://recon.example.com' }, {}, {
+      home: '/tmp/fake-home',
+      readFile: async () => { throw new Error('must not read local code for remote server'); },
+    });
+    assert.equal(remote.code, '');
+    const explicit = await discoverReconSettings({ reconAccessCode: 'manual' }, {}, {
+      readFile: async () => { throw new Error('must not read code when configured'); },
+    });
+    assert.equal(explicit.code, 'manual');
   });
 
   it('checks health and sends the owner code in a header, never in the URL', async () => {
