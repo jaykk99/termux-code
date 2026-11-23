@@ -27,6 +27,11 @@ describe('wroteFiles', () => {
     }
   });
 
+  it('counts a checkpoint restore but not the snapshot itself', () => {
+    assert.equal(wroteFiles('checkpoint', 'Created checkpoint ab12 (3 file(s)).'), false);
+    assert.equal(wroteFiles('checkpoint', 'Restored 3 file(s) from checkpoint ab12.'), true);
+  });
+
   it('is false for read-only tools and for non-write results', () => {
     assert.equal(wroteFiles('read_file', 'Wrote src/a.js'), false);
     assert.equal(wroteFiles('bash', 'Wrote src/a.js'), false);

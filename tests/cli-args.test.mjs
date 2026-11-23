@@ -5,7 +5,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseArgs, approvalModeFor, pickModel, deniedNote, withPlanNote, PLAN_NOTE, USAGE } from '../lib/cli-args.mjs';
+import { parseArgs, approvalModeFor, pickModel, deniedNote, withPlanNote, withDeepNote, PLAN_NOTE, DEEP_NOTE, DEFAULT_STEPS, DEEP_STEPS, stepBudgetFor, subagentStepBudget, USAGE } from '../lib/cli-args.mjs';
 
 describe('parseArgs()', () => {
   it('leaves the interactive default alone when there are no arguments', () => {
@@ -25,6 +25,7 @@ describe('parseArgs()', () => {
         session: null,
         resume: false,
         think: false,
+        deep: false,
         maxSteps: null,
         error: undefined,
       }
@@ -54,6 +55,43 @@ describe('parseArgs()', () => {
     assert.ok(on.endsWith(PLAN_NOTE));
     assert.equal(withPlanNote(on, true), on);
     assert.equal(withPlanNote(on, false), 'BASE');
+  });
+
+  it('reads deep-work mode, and never mistakes it for plan-first', () => {
+    assert.equal(parseArgs(['--deep']).deep, true);
+    assert.equal(parseArgs(['--deep']).think, false);
+    assert.equal(parseArgs([]).deep, false);
+    assert.match(USAGE, /--deep/);
+  });
+
+  it('withDeepNote() adds and removes the deep note idempotently', () => {
+    const on = withDeepNote('BASE', true);
+    assert.ok(on.startsWith('BASE'));
+    assert.ok(on.endsWith(DEEP_NOTE));
+    assert.equal(withDeepNote(on, true), on);
+    assert.equal(withDeepNote(on, false), 'BASE');
+    // The two notes coexist: turning plan-first on must not eat deep work.
+    const both = withPlanNote(on, true);
+    assert.ok(both.includes(DEEP_NOTE) && both.includes(PLAN_NOTE));
+  });
+
+  it('stepBudgetFor() gives deep mode a bigger ceiling, and -n the last word', () => {
+    assert.equal(stepBudgetFor({}), DEFAULT_STEPS);
+    assert.equal(stepBudgetFor({ deep: true }), DEEP_STEPS);
+    assert.ok(DEEP_STEPS > DEFAULT_STEPS);
+    assert.equal(stepBudgetFor({ deep: true, maxSteps: 7 }), 7);
+    assert.equal(stepBudgetFor({ maxSteps: 0 }), DEFAULT_STEPS);
+  });
+
+  it('subagentStepBudget() is no longer a one-grep 8 steps', () => {
+    // "read the repo, find X, then check that URL" died at 8 and reported a
+    // fragment as the answer.
+    assert.equal(subagentStepBudget({ parent: 40 }), 24);
+    assert.equal(subagentStepBudget({ parent: 120, deep: true }), 60);
+    assert.ok(subagentStepBudget({ parent: 40 }) > 8);
+    // Never more than the main loop, but a tiny -n still leaves room to work.
+    assert.equal(subagentStepBudget({ parent: 4 }), 12);
+    assert.equal(subagentStepBudget({ parent: 20, deep: true }), 20);
   });
 
   it('reads the informational flags', () => {
@@ -105,7 +143,7 @@ describe('parseArgs()', () => {
   });
 
   it('documents every flag it accepts in the usage text', () => {
-    for (const flag of ['--print', '--yes', '--model', '--cwd', '--max-steps', '--session', '--json', '--help', '--version']) {
+    for (const flag of ['--print', '--yes', '--model', '--cwd', '--max-steps', '--session', '--json', '--think', '--deep', '--help', '--version']) {
       assert.ok(USAGE.includes(flag), `${flag} missing from the usage text`);
     }
   });
