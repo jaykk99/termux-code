@@ -26,7 +26,7 @@ import { SessionStore, deriveTitle } from '../lib/sessions.mjs';
 import { cleanMessages, trimForGateway } from '../lib/history.mjs';
 import { C, box, banner, toolHeader, toolResult, spinner, pick, wrap, width, renderMarkdown } from '../lib/tui.mjs';
 import { isRefusalResponse } from '../lib/refusal.mjs';
-import { parseArgs, USAGE, approvalModeFor, deniedNote, pickModel } from '../lib/cli-args.mjs';
+import { parseArgs, USAGE, approvalModeFor, deniedNote, pickModel, withPlanNote } from '../lib/cli-args.mjs';
 
 const CONFIG_DIR = path.join(os.homedir(), '.termux-code');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
@@ -530,6 +530,7 @@ const HELP = [
   ['/sessions', 'list saved conversation sessions'],
   ['/session <n>', 'resume a session by number or id'],
   ['/new', 'start a new session'],
+  ['/think', 'toggle plan-first mode (TODO.md plan, then work the steps)'],
   ['/rename <t>', 'rename the current session'],
   ['/export [file]', 'export the session as Markdown'],
   ['/failover', 'show provider failover status'],
@@ -735,7 +736,12 @@ async function main() {
    * Session-level switches that the REPL can change at runtime. Quiet is
    * the default: a failed provider is a detail, not news.
    */
-  const state = { verbose: Boolean(args.verbose) };
+  const state = { verbose: Boolean(args.verbose), think: Boolean(args.think) };
+  // Plan-first: the note rides on the system prompt, so every turn of the
+  // session sees it — including the tool results the model reads back.
+  if (state.think && messages[0]?.role === 'system') {
+    messages[0] = { ...messages[0], content: withPlanNote(messages[0].content, true) };
+  }
 
   /**
    * One assistant step over an arbitrary message list, through the
@@ -1003,9 +1009,26 @@ async function main() {
 
     if (input === '/clear') {
       messages.length = 0;
-      messages.push({ role: 'system', content: SYSTEM_PROMPT });
+      messages.push({ role: 'system', content: withPlanNote(SYSTEM_PROMPT, state.think) });
       await persist();
       console.log(C.dim('  Conversation cleared.\n'));
+      continue;
+    }
+
+    if (input === '/think') {
+      state.think = !state.think;
+      messages[0] = {
+        ...(messages[0] || { role: 'system' }),
+        role: 'system',
+        content: withPlanNote(messages[0]?.content ?? SYSTEM_PROMPT, state.think),
+      };
+      console.log(
+        C.dim(
+          state.think
+            ? '  plan-first on — the next turn writes a 5-step TODO.md and works it in order.\n'
+            : '  plan-first off.\n'
+        )
+      );
       continue;
     }
 

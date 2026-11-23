@@ -33,6 +33,44 @@ after(async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
 
+describe('web tools', () => {
+  it('web_search parses results and unwraps the DuckDuckGo redirect', async () => {
+    const real = globalThis.fetch;
+    const html =
+      '<a class="result__a" href="/l/?uddg=https%3A%2F%2Fnodejs.org%2Fen&rut=x">Node.js</a>' +
+      '<a class="result__snippet" href="https://nodejs.org/en">JavaScript runtime</a>';
+    globalThis.fetch = async (url) => {
+      assert.match(String(url), /html\.duckduckgo\.com\/html\/\?q=node/);
+      return new Response(html, { headers: { 'content-type': 'text/html' } });
+    };
+    try {
+      const out = await runTool('web_search', { query: 'node' }, ctx());
+      assert.match(out, /1\. Node\.js/);
+      assert.match(out, /https:\/\/nodejs\.org\/en/);
+      assert.match(out, /JavaScript runtime/);
+    } finally {
+      globalThis.fetch = real;
+    }
+  });
+
+  it('fetch_url returns page text and refuses a non-http scheme', async () => {
+    const real = globalThis.fetch;
+    globalThis.fetch = async () =>
+      new Response('<html><body><h1>Hi</h1><script>x()</script><p>there</p></body></html>', {
+        headers: { 'content-type': 'text/html' },
+      });
+    try {
+      const out = await runTool('fetch_url', { url: 'https://example.com' }, ctx());
+      assert.match(out, /HTTP 200/);
+      assert.match(out, /Hi there/);
+      assert.doesNotMatch(out, /x\(\)/);
+    } finally {
+      globalThis.fetch = real;
+    }
+    assert.match(await runTool('fetch_url', { url: 'file:///etc/passwd' }, ctx()), /Only http and https/);
+  });
+});
+
 describe('grep tool', () => {
   it('finds matches in real files, including nested ones', async () => {
     const out = await runTool('grep', { pattern: 'needle' }, ctx());

@@ -5,7 +5,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseArgs, approvalModeFor, pickModel, deniedNote, USAGE } from '../lib/cli-args.mjs';
+import { parseArgs, approvalModeFor, pickModel, deniedNote, withPlanNote, PLAN_NOTE, USAGE } from '../lib/cli-args.mjs';
 
 describe('parseArgs()', () => {
   it('leaves the interactive default alone when there are no arguments', () => {
@@ -24,6 +24,7 @@ describe('parseArgs()', () => {
         verbose: false,
         session: null,
         resume: false,
+        think: false,
         maxSteps: null,
         error: undefined,
       }
@@ -38,6 +39,21 @@ describe('parseArgs()', () => {
     assert.equal(parseArgs(['-r']).resume, true);
     assert.equal(parseArgs([]).resume, false);
     assert.match(USAGE, /--resume/);
+  });
+
+  it('reads plan-first mode', () => {
+    assert.equal(parseArgs(['--think']).think, true);
+    assert.equal(parseArgs(['-t']).think, true);
+    assert.equal(parseArgs([]).think, false);
+    assert.match(USAGE, /--think/);
+  });
+
+  it('withPlanNote() adds and removes the plan note idempotently', () => {
+    const on = withPlanNote('BASE', true);
+    assert.ok(on.startsWith('BASE'));
+    assert.ok(on.endsWith(PLAN_NOTE));
+    assert.equal(withPlanNote(on, true), on);
+    assert.equal(withPlanNote(on, false), 'BASE');
   });
 
   it('reads the informational flags', () => {
