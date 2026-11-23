@@ -357,6 +357,7 @@ export async function runFailoverTurn(model, models, messages, tracker, complete
     maxRetryDelayMs: opts.maxRetryDelayMs,
     transientRetries: opts.transientRetries,
     refusalRetry: opts.refusalRetry,
+    emptyRetry: opts.emptyRetry,
     onAttempt: (a) => {
       if (a.ok) return;
       failures.push(a);
