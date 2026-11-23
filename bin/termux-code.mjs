@@ -281,17 +281,27 @@ async function chooseModel(models, current, rl) {
  * in the same shape local complete() returns: { text, toolCalls, assistantMessage }.
  */
 export async function completeViaGateway(gateway, model, messages, gatewayToken, { timeoutMs = 30_000 } = {}) {
-  const res = await fetch(gateway.replace(/\/$/, '') + '/api/chat', {
-    method: 'POST',
-    signal: AbortSignal.timeout(timeoutMs),
-    headers: {
-      'Content-Type': 'application/json',
-      ...(gatewayToken ? { Authorization: `Bearer ${gatewayToken}` } : {}),
-    },
-    body: JSON.stringify({ model, messages: trimForGateway(messages) }),
-    // Failover can try another route when a hosted function stalls.
-    signal: AbortSignal.timeout(50_000),
-  });
+  // A ref'd timer, not AbortSignal.timeout: that timer is unref'd, so on a
+  // quiet event loop (a stub or a hung socket with nothing else pending) the
+  // process can drain before the deadline fires. This object also used to
+  // carry two `signal:` keys, so the caller's short deadline was silently
+  // replaced by a fixed 50s one.
+  const ctl = new AbortController();
+  const deadline = setTimeout(() => ctl.abort(), timeoutMs);
+  let res;
+  try {
+    res = await fetch(gateway.replace(/\/$/, '') + '/api/chat', {
+      method: 'POST',
+      signal: ctl.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(gatewayToken ? { Authorization: `Bearer ${gatewayToken}` } : {}),
+      },
+      body: JSON.stringify({ model, messages: trimForGateway(messages) }),
+    });
+  } finally {
+    clearTimeout(deadline);
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.error) {
     // A rejected gateway token is terminal: every model in the chain
