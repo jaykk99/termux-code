@@ -29,6 +29,7 @@ import { isRefusalResponse } from '../lib/refusal.mjs';
 import { parseArgs, USAGE, approvalModeFor, deniedNote, pickModel, withPlanNote } from '../lib/cli-args.mjs';
 import { connectAll, loadMcpConfig, parseQualified, runMcpTool, toolsForOpenAI as mcpToolsForOpenAI, toolsForAnthropic as mcpToolsForAnthropic } from '../lib/mcp.mjs';
 import { projectInstructions, applyProjectInstructions } from '../lib/project-context.mjs';
+import { browserDiagnostic } from '../lib/browser.mjs';
 
 const CONFIG_DIR = path.join(os.homedir(), '.termux-code');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
@@ -562,6 +563,7 @@ const HELP = [
   ['/context', 'show how much context the session uses'],
   ['/clear', 'forget this conversation'],
   ['/cwd', 'show the workspace root'],
+  ['/browser', 'check browser access, Chromium and gateway fallback'],
   ['/exit', 'quit'],
 ];
 
@@ -1323,6 +1325,26 @@ async function main() {
         cfg.verify = arg;
       }
       console.log(C.dim(`  verify ${verifyState.enabled ? 'on' : 'off'}${verifyState.command ? `: ${verifyState.command}` : ' (no command found)'}`) + '\n');
+      continue;
+    }
+
+    if (input === '/browser' || input === '/browser status') {
+      const diagnostic = await browserDiagnostic({ gateway: cfg.gateway });
+      console.log('\n' + box([
+        diagnostic.chromium
+          ? C.green('Chromium: detected (' + diagnostic.chromium + ')')
+          : C.amber('Chromium: not detected'),
+        diagnostic.interactive
+          ? C.green('Interactive browser: supported by Node; runtime connection not yet tested')
+          : C.amber('Interactive browser: Node WebSocket unavailable'),
+        diagnostic.gateway
+          ? C.green('Gateway: configured (read-only page fallback; not tested)')
+          : C.dim('Gateway: not configured'),
+        '',
+        C.dim(diagnostic.chromium
+          ? 'Use the agent browser tool to open, read, click, type or screenshot. CDP capability requires a live smoke test.'
+          : 'Install with: pkg install chromium. Without Chromium, the gateway can read page text only.')
+      ], { title: 'browser access' }) + '\n');
       continue;
     }
 
