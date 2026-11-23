@@ -35,6 +35,7 @@ import { createTaskProgress, observeTaskTool, requestContinuation } from '../lib
 import { effortConfig, effortInstruction, EFFORT_MODES } from '../lib/effort.mjs';
 import { REASONING_MODES, reasoningPolicy, withReasoningNote } from '../lib/reasoning.mjs';
 import { memoryNote, withMemory } from '../lib/frontier.mjs';
+import { discoverReconSettings, runReconTool, validateReconUrl, withReconHint } from '../lib/recon.mjs';
 
 const CONFIG_DIR = path.join(os.homedir(), '.termux-code');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
@@ -66,7 +67,8 @@ async function loadConfig() {
 
 async function saveConfig(cfg) {
   await fs.mkdir(CONFIG_DIR, { recursive: true });
-  await fs.writeFile(CONFIG_FILE, JSON.stringify(cfg, null, 2));
+  await fs.writeFile(CONFIG_FILE, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+  await fs.chmod(CONFIG_FILE, 0o600);
 }
 
 /**
@@ -158,9 +160,13 @@ async function loadHistory(rl) {
 async function saveHistory(rl) {
   try {
     if (!Array.isArray(rl.history)) return;
-    const lines = [...rl.history].reverse().slice(-HISTORY_KEEP);
+    // Do not persist CLI commands containing access codes or API tokens.
+    const lines = [...rl.history].reverse()
+      .filter((line) => !/^\/(?:recon\s+code\b|bro-code\b|gateway-token\b|inbox-key\b|key\s)/i.test(String(line).trim()))
+      .slice(-HISTORY_KEEP);
     await fs.mkdir(CONFIG_DIR, { recursive: true });
-    await fs.writeFile(HISTORY_FILE, lines.join('\n') + '\n', 'utf8');
+    await fs.writeFile(HISTORY_FILE, lines.join('\n') + '\n', { mode: 0o600 });
+    await fs.chmod(HISTORY_FILE, 0o600);
   } catch {
     /* history is a nice-to-have; never fail shutdown over it */
   }
@@ -608,6 +614,8 @@ export async function turn(model, messages, rl, root, completeFn, gateway = {}, 
             // fallback goes through the gateway, like Composio does.
             gateway: gateway.gateway,
             gatewayToken: gateway.gatewayToken,
+            recon: typeof agent.reconSettings === 'function' ? agent.reconSettings() : agent.recon,
+            reconActive: typeof agent.isReconActive === 'function' ? agent.isReconActive() : false,
           });
         }
       } catch (err) {
@@ -674,6 +682,10 @@ export const HELP = [
   ['/undo [id]', 'restore the newest checkpoint (or a named one)'],
   ['/cwd', 'show the workspace root'],
   ['/repo <owner/repo|path>', 'connect to a GitHub or local repository workspace'],
+  ['/recon', 'check the ReconAnything scanner connection'],
+  ['/recon url <url>', 'set the local/LAN ReconAnything backend URL'],
+  ['/recon code <code>', 'save the ReconAnything owner access code'],
+  ['/recon active on', 'explicitly permit active scans for this session'],
   ['/browser', 'check browser access, Chromium and gateway fallback'],
   ['/exit', 'quit'],
 ];
@@ -756,6 +768,8 @@ async function main(workspaceOverride = null) {
 
   const root = process.cwd();
   const cfg = await loadConfig();
+  let reconActive = false; // session-only: active scanning must be explicitly enabled
+  const currentRecon = () => discoverReconSettings(cfg);
 
   // Bro (Jay's uncensored gateway) comes from ~/.termux-code/config.json
   // — set by the installer (TERMUX_CODE_BRO_URL / TERMUX_CODE_BRO_CODE)
@@ -927,7 +941,7 @@ async function main(workspaceOverride = null) {
     if (state.deep) policy.maxSteps = MAX_STEPS;
     state.turnEffort = policy.effort;
     if (transcript[0]?.role === 'system') {
-      transcript[0] = { ...transcript[0], content: withReasoningNote(transcript[0].content, policy.effort) };
+      transcript[0] = { ...transcript[0], content: withReconHint(withReasoningNote(transcript[0].content, policy.effort), text) };
     }
     return policy;
   };
@@ -1057,6 +1071,8 @@ async function main(workspaceOverride = null) {
         verbose: false,
         trace: state.trace,
         mcpServers,
+        reconSettings: currentRecon,
+        isReconActive: () => reconActive,
         deep: state.deep,
         maxSteps: subagentStepBudget({ deep: state.deep, parent: MAX_STEPS }),
         autoContinue: false,
@@ -1079,7 +1095,7 @@ async function main(workspaceOverride = null) {
       answer = await turn(model, messages, rl, root, () => completeFor(messages), {
         gateway: cfg.gateway,
         gatewayToken: cfg.gatewayToken,
-      }, { verify: verifyState, summarize, verbose: args.verbose || state.verbose, trace: state.trace, think: state.think, deep: state.deep, mcpServers, spawn: runSubagent, checkpoint: persist, reasoning });
+      }, { verify: verifyState, summarize, verbose: args.verbose || state.verbose, trace: state.trace, think: state.think, deep: state.deep, mcpServers, reconSettings: currentRecon, isReconActive: () => reconActive, spawn: runSubagent, checkpoint: persist, reasoning });
     } finally {
       console.log = realLog;
     }
@@ -1579,6 +1595,49 @@ async function main(workspaceOverride = null) {
       continue;
     }
 
+    if (input === '/recon' || input === '/recon status') {
+      const settings = await currentRecon();
+      if (!settings.enabled) {
+        console.log(C.dim('  ReconAnything disabled. /recon on to enable.\n'));
+      } else {
+        const result = await runReconTool({ action: 'health' }, { recon: settings });
+        console.log('\n' + box(wrap(result, width() - 6), { title: 'ReconAnything' }) + '\n');
+        console.log(C.dim('  active scans: ' + (reconActive ? 'enabled for this session' : 'off (use /recon active on)') + '\n'));
+      }
+      continue;
+    }
+
+    if (input.startsWith('/recon ')) {
+      const command = input.slice('/recon '.length).trim();
+      if (command === 'on' || command === 'off') {
+        cfg.reconDisabled = command === 'off';
+        if (cfg.reconDisabled) reconActive = false;
+        await saveConfig(cfg);
+        console.log(C.dim('  ReconAnything ' + (cfg.reconDisabled ? 'disabled' : 'enabled') + '.\n'));
+      } else if (command === 'active on' || command === 'active off') {
+        reconActive = command === 'active on' && !cfg.reconDisabled;
+        console.log(C.dim('  Active scanning ' + (reconActive ? 'enabled for this session only' : 'off') + '.\n'));
+      } else if (command.startsWith('url ')) {
+        try {
+          cfg.reconApiUrl = validateReconUrl(command.slice(4).trim());
+          cfg.reconDisabled = false;
+          await saveConfig(cfg);
+          console.log(C.dim('  ReconAnything backend set to ' + cfg.reconApiUrl + '. Try /recon.\n'));
+        } catch (err) {
+          console.log(C.red('  ' + err.message + '\n'));
+        }
+      } else if (command.startsWith('code ')) {
+        const code = command.slice(5).trim();
+        if (code === 'off') delete cfg.reconAccessCode;
+        else if (code) cfg.reconAccessCode = code;
+        await saveConfig(cfg);
+        console.log(C.dim('  ReconAnything access code ' + (code === 'off' ? 'cleared' : 'saved (not shown)') + '.\n'));
+      } else {
+        console.log(C.dim('  Usage: /recon, /recon on|off, /recon url <http(s)://host:8000>, /recon code <code>|off, /recon active on|off\n'));
+      }
+      continue;
+    }
+
     if (input === '/repo' || input === '/repo status') {
       console.log(C.dim('  Active repo workspace: ' + root + '\n'));
       continue;
@@ -1678,6 +1737,8 @@ async function main(workspaceOverride = null) {
       deep: state.deep,
       spawn: runSubagent,
       mcpServers,
+      reconSettings: currentRecon,
+      isReconActive: () => reconActive,
       spawn: runSubagent,
       checkpoint: persist,
       reasoning,

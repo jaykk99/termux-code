@@ -22,6 +22,24 @@ written from scratch, shaped around what actually matters on a phone:
 - **Nothing happens without approval.** Every write, edit and shell command
   shows you what it wants to do first.
 
+## ReconAnything security integration
+
+The Termux agent has a native `recon_anything` tool for authorized security
+reconnaissance and vulnerability assessments. When you ask it to assess a
+site, scan a domain, or inspect findings, it can use the linked
+[`recon-anything`](https://github.com/jaykk99/recon-anything) backend and return
+the results inside the same chat. No additional AI provider or MCP server needed.
+
+Start the ReconAnything backend first; then run `/recon` to check it.
+On the same Android device, the default API URL and local setup-generated access
+code are discovered automatically from common checkout locations. For a remote
+Linux backend, configure `/recon url http://192.168.1.30:8000` and
+`/recon code <access-code>`. The agent defaults to passive scans and
+requires target authorization; active mode requires `/recon active on` in
+each session.
+
+See [setup, LAN configuration and troubleshooting](docs/RECON-ANYTHING.md).
+
 ## Two ways to talk to it
 
 **`/model`** — pick a provider/model and it drives local tools: read, write,
