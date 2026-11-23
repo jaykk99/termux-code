@@ -848,7 +848,7 @@ async function main(workspaceOverride = null) {
         models,
         msgs,
         tracker,
-        (m, context) => complete(m, prepareMessages(context), process.env, m.auth === 'anthropic' ? mcpToolsAnthropic : mcpToolsOAI),
+        (m, context) => complete(m, prepareMessages(context), process.env, m.auth === 'anthropic' ? mcpToolsAnthropic : mcpToolsOAI, { effort }),
         sessionBadModels,
         chainOpts
       );
