@@ -8,7 +8,10 @@
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { completeViaGateway, runFailoverTurn, defaultModel } from '../bin/termux-code.mjs';
+import { completeViaGateway, runFailoverTurn, defaultModel, turn } from '../bin/termux-code.mjs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { FailureTracker, FailoverError } from '../lib/failover.mjs';
 
 const jsonRes = (body, { ok = true, status = 200 } = {}) => ({
@@ -152,6 +155,57 @@ describe('completeViaGateway()', () => {
       () => completeViaGateway('https://gw.example.com', model, messages, null),
       /Gateway returned HTTP 500/,
     );
+  });
+});
+
+describe('turn() — budget checkpoints keep a multi-step task going', () => {
+  const fakeModel = { id: 'x', provider: 'kilo', auth: 'none', label: 'x uncensored' };
+  const system = () => [{ role: 'system', content: 'sys' }, { role: 'user', content: 'do it all' }];
+  const toolReply = () => ({
+    text: '',
+    toolCalls: [{ name: 'list_dir', args: { path: '.' } }],
+    assistantMessage: { role: 'assistant', content: '' },
+  });
+
+  it('carries on past the first window while tools are still being used', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'tc-turn-'));
+    let calls = 0;
+    try {
+      const { out, lines } = await captureLog(() =>
+        turn(fakeModel, system(), null, root, async () => { calls++; return toolReply(); }, {},
+          { maxSteps: 2, autoContinue: true, verify: { enabled: false } }));
+      assert.equal(out, null); // still unfinished at the hard ceiling
+      assert.equal(calls, 6); // three windows of two steps
+      assert.equal(lines.filter((l) => l.includes('[deep]')).length, 2);
+      assert.ok(lines.some((l) => /Stopped after 6 tool steps/.test(l)));
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it('stops at one window when autoContinue is off', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'tc-turn-'));
+    let calls = 0;
+    try {
+      const { out, lines } = await captureLog(() =>
+        turn(fakeModel, system(), null, root, async () => { calls++; return toolReply(); }, {},
+          { maxSteps: 2, autoContinue: false, verify: { enabled: false } }));
+      assert.equal(out, null);
+      assert.equal(calls, 2);
+      assert.equal(lines.filter((l) => l.includes('[deep]')).length, 0);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it('returns the answer as soon as no tool is asked for', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'tc-turn-'));
+    let calls = 0;
+    try {
+      const { out } = await captureLog(() =>
+        turn(fakeModel, system(), null, root, async () => {
+          calls++;
+          return { text: 'all done', toolCalls: [], assistantMessage: { role: 'assistant', content: 'all done' } };
+        }, {}, { maxSteps: 2, verify: { enabled: false } }));
+      assert.equal(out, 'all done');
+      assert.equal(calls, 1);
+    } finally { await rm(root, { recursive: true, force: true }); }
   });
 });
 

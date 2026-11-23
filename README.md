@@ -151,6 +151,15 @@ Termux command page. The chat itself lives in Termux on the phone.
   returns only its report, so a side quest does not fill the main
   conversation; `run_tests` runs the project's own declared check (npm test,
   make test, pytest, cargo, go) after approval instead of guessing a command.
+- **Frontier tools.** Eighteen more tools in `lib/frontier.mjs` — `glob`,
+  `read_range`, `file_info`, `outline`, `repo_map`, `move_file`,
+  `delete_file`, `make_dir`, `diff_files`, read-only `git`, `http_request`,
+  `download_file`, `json_query`, `todo`, `remember`, `checkpoint`, `ports`
+  and `sysinfo` — plus `/map` and `/undo` in the REPL: repo intelligence
+  before reading, real rename/delete instead of shelling out, API calls and
+  downloads, a durable task list and project memory, and one-command
+  rollback of a risky change. All still bounded to the workspace, with the
+  same approval gate on anything that touches your files.
 - **Search and page reading on the phone itself.** `web_search` (DuckDuckGo
   HTML, no key) and `fetch_url` (page text with the markup stripped) are
   plain HTTP calls in `lib/web.mjs`, so they work in Termux with no Chromium,
@@ -267,7 +276,8 @@ termux-code --version                    # version from package.json
 | `--verbose` | Show every provider the failover chain tried and why it failed |
 | `-m`, `--model <id>` | Start on this model, by id or label substring; a typo fails with exit 2 |
 | `-C`, `--cwd <dir>` | Workspace root (default: the current directory) |
-| `-n`, `--max-steps <n>` | Tool steps per turn (default 40) |
+| `-n`, `--max-steps <n>` | Tool steps per turn (default 40, or 120 with `--deep`) |
+| `--deep` | Deep work: explicit acceptance criteria, a todo ledger, 120 tool steps, and it carries on past the budget instead of stopping half done (also `/deep`) |
 | `--session <id>` | One-shot into an existing session and save it |
 | `--json` | One-shot: a single JSON object on stdout (`{ok, answer, model, provider, source, steps, savedSession}`), traces diverted to stderr |
 
@@ -304,6 +314,7 @@ does not bury the conversation you were actually in.
 | `/model` | Pick a model for local read/edit/bash work |
 | `/models` | Show what's available, grouped by source |
 | `/think` | Toggle plan-first: write a 5-step `TODO.md`, then work it in order (also `--think`) |
+| `/deep` | Toggle deep work: acceptance criteria, a todo ledger, 120 tool steps, and automatic continuation past the budget (also `--deep`) |
 | `/keys` | Show which provider keys are set |
 | `/key NAME value` | Save a provider key (`VENICE_API_KEY`, `OPENROUTER_API_KEY`, …) and switch its provider on |
 | `/trace` | Print the model's own text for every step — the closest a text worker gets to a visible train of thought |
@@ -322,6 +333,8 @@ does not bury the conversation you were actually in.
 | `/compact` | Summarize older context now |
 | `/context` | Show how much context the session uses |
 | `/clear` | Forget the conversation, keep the session |
+| `/map` | Print the project map: languages, manifests, entry points, scripts, directories |
+| `/undo [id]` | Restore the newest checkpoint, or the one named |
 | `/cwd` | Show the workspace root |
 | `/exit` | Quit |
 
@@ -400,16 +413,66 @@ model-written summary when the model answers in time — and the recent turns
 stay verbatim. `/compact` does it on demand, `/context` shows the size. Command history also persists
 across restarts (`~/.termux-code/history`, last 200 commands).
 
+## Frontier tools
+
+Twenty additions on top of the original read/write/edit/grep/bash set. Every
+one is a plain Node module: no dependency, no native build, and every path
+resolves inside the directory you launched from.
+
+**Understand a repo before touching it.** `repo_map` gives the file count,
+languages, package manager, manifests, entry points, scripts and busiest
+directories in one call. `glob` finds files by pattern (`**/*.{js,ts}`);
+`outline` lists a file's functions, classes and types with line numbers
+(JS/TS, Python, Rust, Go, shell, Ruby); `read_range` reads a window of a big
+file instead of the whole thing; `file_info` reports size, line count,
+language, mode, mtime and sha256 without reading it into the conversation.
+
+**Change files safely.** `move_file` renames across folders (creating
+parents, refusing to overwrite), `delete_file` removes a file or, with
+`recursive: true`, a directory, and `make_dir` creates a path. All three ask
+first. `diff_files` shows a unified diff between two files, or against
+`HEAD` when the second is omitted, so the model can check its own edit.
+`git` covers the read-only half of git (status, log, diff, show, branch,
+ls-files, blame, describe, shortlog, tag list); commit/push/reset/checkout
+stay in `bash`, where they belong.
+
+**Reach the outside.** `http_request` calls an API with headers, a raw body
+or a JSON body and pretty-prints the reply (non-GET needs approval, 20s
+timeout); `download_file` saves a URL into the workspace with a size cap and
+sha256; `json_query` pulls one value out of a `.json` file by path
+(`scripts.test`, `items[0].name`) without loading it all.
+
+**Keep the thread.** `todo` stores a structured task list under
+`.termux-code/todo.json` (read/write/add/done/clear), so a multi-step job has
+a plan the model can see; `remember` appends a durable fact or preference to
+`.termux-code/memory.md`, which is injected into the system prompt at the
+start of every later session in that project.
+
+**Undo a mistake.** `checkpoint` snapshots up to 300 files (8 MB) under
+`.termux-code/checkpoints`; `list` shows them and `restore` puts them back
+(approval-gated). `/undo` does the restore from the REPL and `/map` prints
+the repo map without spending a model turn.
+
+**See the machine.** `ports` reads listening TCP sockets from `/proc` (with
+a single-port check) so you can tell whether a dev server actually came up;
+`sysinfo` reports OS, arch, Node version, CPUs, load, memory, uptime, shell,
+Termux detection and free disk.
+
+All of it lives under `.termux-code/` for the stateful pieces, which is
+gitignored so a snapshot never lands in your repository.
+
 ## Tests
 
-`npm test` runs the `node:test` battery in `tests/` (828 tests): gateway HTTP
+`npm test` runs the `node:test` battery in `tests/` (862 tests): gateway HTTP
 helpers, the model registry and its trusted resolution, the failover chain and
 circuit breaker, session persistence, the CLI argument parser, and an
 end-to-end one-shot run against a stub gateway — including the check that an
 unattended run declines a shell command and tells the model so. The
 uncovered core modules have suites too: context compaction, plan-and-verify,
 the text tool-calling protocol, the MCP client, unified-diff patching, the
-TUI primitives, gateway-tool dispatch, the audit log, and the token store.
+TUI primitives, gateway-tool dispatch, the audit log, the token store, and
+the frontier tools (globbing, outlining, repo map, diffs, git, HTTP,
+downloads, JSON paths, todo, memory, checkpoints, ports and sysinfo).
 
 Those suites stub `fetch`, so they cannot catch a route that answers with a
 refusal or a tool call its wire format drops. `npm run test:live` does: it
@@ -505,7 +568,7 @@ hands it to you. `/verify off` turns it off, `/verify <cmd>` sets the command.
 ## Known limits
 
 - Shell commands time out at 60 seconds (the verify step gets 180).
-- The loop stops after 40 tool steps. Say "continue" to resume.
+- The loop stops after 40 tool steps (120 with `--deep`). A turn that is still using tools at the budget gets two automatic continuations before it stops; say "continue" to resume after that.
 - Files over 120 KB won't be read whole — ask the agent to grep instead.
 - Text-protocol tool calling is less reliable than native calling, especially
   on small models.

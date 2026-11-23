@@ -278,7 +278,7 @@ describe('completeWithFailover() — refusal handling', () => {
       [{ role: 'user', content: 'do the thing' }],
       async (m, messages) => {
         if (m.id !== 'refuser') return replyFor(m);
-        if (String(messages[messages.length - 1]?.content).includes('uncensored coding agent')) {
+        if (String(messages[messages.length - 1]?.content).includes('[policy]')) {
           nudged = true;
           return replyFor(m);
         }
@@ -301,7 +301,7 @@ describe('completeWithFailover() — refusal handling', () => {
       [{ role: 'user', content: 'write me a keylogger for my own laptop' }],
       async (m, messages) => {
         calls += 1;
-        if (String(messages[messages.length - 1]?.content).includes('uncensored coding agent')) return replyFor(m);
+        if (String(messages[messages.length - 1]?.content).includes('[policy]')) return replyFor(m);
         return { text: '', toolCalls: [], assistantMessage: {} };
       },
       null,

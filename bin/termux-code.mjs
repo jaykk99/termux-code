@@ -26,7 +26,7 @@ import { SessionStore, deriveTitle } from '../lib/sessions.mjs';
 import { cleanMessages, trimForGateway } from '../lib/history.mjs';
 import { C, box, banner, toolHeader, toolResult, spinner, pick, wrap, width, renderMarkdown } from '../lib/tui.mjs';
 import { isRefusalResponse } from '../lib/refusal.mjs';
-import { parseArgs, USAGE, approvalModeFor, deniedNote, pickModel, withPlanNote } from '../lib/cli-args.mjs';
+import { parseArgs, USAGE, approvalModeFor, deniedNote, pickModel, withPlanNote, withDeepNote, stepBudgetFor, subagentStepBudget } from '../lib/cli-args.mjs';
 import { connectAll, loadMcpConfig, parseQualified, runMcpTool, toolsForOpenAI as mcpToolsForOpenAI, toolsForAnthropic as mcpToolsForAnthropic } from '../lib/mcp.mjs';
 import { projectInstructions, applyProjectInstructions } from '../lib/project-context.mjs';
 import { browserDiagnostic } from '../lib/browser.mjs';
@@ -34,6 +34,7 @@ import { connectGithubRepo, resolveLocalRepo } from '../lib/repo-connector.mjs';
 import { createTaskProgress, observeTaskTool, requestContinuation } from '../lib/task-progress.mjs';
 import { effortConfig, effortInstruction, EFFORT_MODES } from '../lib/effort.mjs';
 import { REASONING_MODES, reasoningPolicy, withReasoningNote } from '../lib/reasoning.mjs';
+import { memoryNote, withMemory } from '../lib/frontier.mjs';
 
 const CONFIG_DIR = path.join(os.homedir(), '.termux-code');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
@@ -41,6 +42,10 @@ const SESSIONS_DIR = path.join(CONFIG_DIR, 'sessions');
 const HISTORY_FILE = path.join(CONFIG_DIR, 'history');
 /** Tool steps per turn. Peer of the --max-steps flag, so it is mutable. */
 let MAX_STEPS = 80;
+/** Sent when a budget window ends with the task still open, so the turn
+ *  continues instead of handing a half-finished job back to the user. */
+const DEEP_CONTINUE =
+  'Budget checkpoint: you still had tool work in flight. Say in one line what is done and what is next, then continue the task from where you are. Do not restate the whole plan.';
 const MAX_VERIFY_ATTEMPTS = 3;
 const VERIFY_TIMEOUT_MS = 180_000;
 const HISTORY_KEEP = 200;
@@ -375,8 +380,23 @@ export async function turn(model, messages, rl, root, completeFn, gateway = {}, 
   let protocolRetries = 0;
   const originalRequest = [...messages].reverse().find(m => m?.role === 'user' && typeof m.content === 'string')?.content || '';
   const progress = createTaskProgress(originalRequest);
-  const stepLimit = agent.reasoning?.maxSteps ?? MAX_STEPS;
-  for (let step = 0; step < stepLimit; step++) {
+  // One budget for the whole turn. The reasoning policy sets the per-mode cap
+  // (fast 8, balanced 24, deep 40); --deep / --max-steps raise it, and a run
+  // that ends a 40-step window with work still in flight gets up to two
+  // automatic extensions instead of stopping to make the user type "continue".
+  // A reasoning policy's maxSteps is the cap for the whole turn; a plain
+  // agent.maxSteps stays the per-window size it has always been (a caller can
+  // still ask for three windows of two). Either way a window is at most 40.
+  const policed = Number.isInteger(agent.reasoning?.maxSteps);
+  const asked = policed ? agent.reasoning.maxSteps : (agent.maxSteps ?? MAX_STEPS);
+  const windowSize = Math.min(asked, 40);
+  const maxContinuations =
+    agent.autoContinue === false ? 0 : policed ? Math.ceil(asked / windowSize) - 1 : 2;
+  const budget = windowSize * (maxContinuations + 1);
+  let spent = 0;
+  for (let window = 0; window <= maxContinuations && spent < budget; window++) {
+    let stillWorking = false;
+    for (let step = 0; step < windowSize && spent < budget; step++, spent++) {
     // Plan-first is opt-in, and the note in the system block alone was not
     // enough: a live worker read it, then went straight at the file without
     // writing TODO.md. Put the first step in the ask itself (the last thing
@@ -471,6 +491,7 @@ export async function turn(model, messages, rl, root, completeFn, gateway = {}, 
         role: 'user',
         content: `<tool_result name="error">\nA tool call in your reply could not be read as one:\n${reply.textProtocolErrors[0]}\nSend it as <tool_call>{"name": "...", "args": {...}}</tool_call> with valid JSON and no other text around it.\n</tool_result>`,
       });
+      stillWorking = true;
       continue;
     }
 
@@ -513,11 +534,25 @@ export async function turn(model, messages, rl, root, completeFn, gateway = {}, 
       }
       console.log(toolResult(output.split('\n').slice(-12).join('\n'), { ok: false }));
       messages.push({ role: 'user', content: failureMessage(v.command, output, verifyAttempts, verifyLimit, changed) });
+      stillWorking = true;
       continue;
     }
 
     for (const call of reply.toolCalls) {
-      const arg = call.args.path || call.args.command || call.args.pattern || call.args.prompt || call.args.tool_slug || call.args.query || call.args.url || call.args.selector || '';
+      const arg =
+      call.args.path ||
+      call.args.command ||
+      call.args.pattern ||
+      call.args.prompt ||
+      call.args.tool_slug ||
+      call.args.query ||
+      call.args.url ||
+      call.args.selector ||
+      call.args.action ||
+      call.args.from ||
+      call.args.subcommand ||
+      call.args.text ||
+      '';
       console.log('\n' + toolHeader(call.name, arg));
       let result;
       let ok = true;
@@ -577,14 +612,25 @@ export async function turn(model, messages, rl, root, completeFn, gateway = {}, 
       // call + result, not just the beginning/end of the entire user turn.
       if (agent.checkpoint) await agent.checkpoint();
     }
+      stillWorking = true;
+    }
+
+    // Work was still in flight when the window ran out: keep going. Two
+    // extensions is the ceiling, so a looping model still stops.
+    if (stillWorking && window < maxContinuations) {
+      console.log(C.dim(`  [deep] ${budget * (window + 1)} tool steps used and the task is still open — continuing.`));
+      messages.push({ role: 'user', content: DEEP_CONTINUE });
+      continue;
+    }
+    break;
   }
-  console.log('\n' + C.red(`Stopped after ${stepLimit} tool steps. Say "continue" to resume.`));
+  console.log('\n' + C.red(`Stopped after ${spent} tool steps. Say "continue" to resume.`));
   return null;
 }
 
 /* ---------- entry ---------- */
 
-const HELP = [
+export const HELP = [
   ['/model', 'pick a model for local read/edit/bash work'],
   ['/models', 'list everything reachable, grouped by source'],
   ['/ask <msg>', 'message your Error Inbox agent instead (no file access)'],
@@ -602,6 +648,7 @@ const HELP = [
   ['/think', 'toggle plan-first mode (TODO.md plan, then work the steps)'],
   ['/reasoning [adaptive|fast|balanced|deep]', 'choose execution effort (adaptive by default)'],
   ['/effort <mode>', 'alias for /reasoning: auto, fast, balanced, or deep'],
+  ['/deep', 'toggle deep work: acceptance criteria, todo ledger, more steps, auto-continue'],
   ['/model-info', 'show selected model provenance and verification limits'],
   ['/keys', 'show which provider keys are set'],
   ['/key NAME value', 'save a provider key (VENICE_API_KEY, OPENROUTER_API_KEY, …)'],
@@ -613,6 +660,8 @@ const HELP = [
   ['/compact', 'summarize older context now'],
   ['/context', 'show how much context the session uses'],
   ['/clear', 'forget this conversation'],
+  ['/map', 'summarize this project: stack, files, entry points, scripts'],
+  ['/undo [id]', 'restore the newest checkpoint (or a named one)'],
   ['/cwd', 'show the workspace root'],
   ['/repo <owner/repo|path>', 'connect to a GitHub or local repository workspace'],
   ['/browser', 'check browser access, Chromium and gateway fallback'],
@@ -681,7 +730,7 @@ async function main(workspaceOverride = null) {
     }
   }
   approvalMode = approvalModeFor(args);
-  if (args.maxSteps) MAX_STEPS = args.maxSteps;
+  MAX_STEPS = stepBudgetFor(args);
 
   // A piped prompt counts as one-shot too, and one-shot without --yes
   // only reads: an unattended run must not edit the phone.
@@ -810,6 +859,18 @@ async function main(workspaceOverride = null) {
   const refreshProjectContext = () =>
     applyProjectInstructions(messages, withPlanNote(SYSTEM_PROMPT, state?.think || false), projectNote);
 
+  // Project memory (the `remember` tool) rides on the system prompt, so every
+  // turn of the session sees the facts Jay asked to keep. withMemory strips
+  // any earlier copy first, so resuming a session cannot duplicate it.
+  const memory = await memoryNote(root);
+  if (memory) {
+    if (messages[0]?.role === 'system') {
+      messages[0] = { ...messages[0], content: withMemory(messages[0].content, memory) };
+    } else {
+      messages.unshift({ role: 'system', content: withMemory(SYSTEM_PROMPT, memory) });
+    }
+  }
+
   /** Persist the conversation without ever breaking the loop. A failed
    *  save is no longer silent: if the phone can't write, Jay should know
    *  his turns may not survive a restart. */
@@ -842,15 +903,18 @@ async function main(workspaceOverride = null) {
    */
   // One setting, two names: /reasoning picks the mode, /effort is its alias.
   // The mode drives the per-turn policy (step and verify budgets) and, through
-  // state.turnEffort, the failover/timeout effort the model call sees.
+  // state.turnEffort, the failover/timeout effort the model call sees. Deep
+  // work pins the mode to deep and raises the cap to the --deep budget.
   const state = {
     verbose: Boolean(args.verbose),
     think: Boolean(args.think),
+    deep: Boolean(args.deep),
     reasoning: args.reasoning ?? (REASONING_MODES.includes(cfg.reasoning) ? cfg.reasoning : 'adaptive'),
     turnEffort: 'fast',
   };
   const prepareReasoning = (text, transcript = messages) => {
-    const policy = reasoningPolicy(text, state.reasoning, MAX_STEPS);
+    const policy = reasoningPolicy(text, state.deep ? 'deep' : state.reasoning, MAX_STEPS);
+    if (state.deep) policy.maxSteps = MAX_STEPS;
     state.turnEffort = policy.effort;
     if (transcript[0]?.role === 'system') {
       transcript[0] = { ...transcript[0], content: withReasoningNote(transcript[0].content, policy.effort) };
@@ -862,6 +926,11 @@ async function main(workspaceOverride = null) {
   // session sees it — including the tool results the model reads back.
   if (state.think && messages[0]?.role === 'system') {
     messages[0] = { ...messages[0], content: withPlanNote(messages[0].content, true) };
+  }
+  // Deep work rides on the system prompt for the same reason the plan note
+  // does: every step of every turn sees it, including tool results.
+  if (state.deep && messages[0]?.role === 'system') {
+    messages[0] = { ...messages[0], content: withDeepNote(messages[0].content, true) };
   }
 
   /**
@@ -961,25 +1030,30 @@ async function main(workspaceOverride = null) {
       },
       { role: 'user', content: extraContext ? `${taskPrompt}\n\n[context]\n${extraContext}` : taskPrompt },
     ];
-    const before = MAX_STEPS;
-    MAX_STEPS = Math.min(16, before);
-    try {
-      const out = await turn(
-        model,
-        sub,
-        rl,
-        root,
-        () => completeFor(sub),
-        { gateway: cfg.gateway, gatewayToken: cfg.gatewayToken },
-        // No spawn: a sub-agent must not start another one, or a misbehaving
-        // model can nest tasks until the step budget is the only limit.
-        { verify: { ...verifyState, enabled: false }, summarize, verbose: false, trace: state.trace, mcpServers }
-      );
-      const report = typeof out === 'string' ? out : String(out?.text ?? '');
-      return report.trim().slice(0, 4000) || 'The sub-agent returned nothing.';
-    } finally {
-      MAX_STEPS = before;
-    }
+    const out = await turn(
+      model,
+      sub,
+      rl,
+      root,
+      () => completeFor(sub),
+      { gateway: cfg.gateway, gatewayToken: cfg.gatewayToken },
+      // No spawn: a sub-agent must not start another one, or a misbehaving
+      // model can nest tasks until the step budget is the only limit.
+      // Its own budget, not 8: a delegated "read this, then check that URL"
+      // needs room, and it never runs longer than the main loop would.
+      {
+        verify: { ...verifyState, enabled: false },
+        summarize,
+        verbose: false,
+        trace: state.trace,
+        mcpServers,
+        deep: state.deep,
+        maxSteps: subagentStepBudget({ deep: state.deep, parent: MAX_STEPS }),
+        autoContinue: false,
+      }
+    );
+    const report = typeof out === 'string' ? out : String(out?.text ?? '');
+    return report.trim().slice(0, 4000) || 'The sub-agent returned nothing.';
   };
 
   // One prompt, no REPL. Exit 0 only when the turn actually produced an
@@ -995,7 +1069,7 @@ async function main(workspaceOverride = null) {
       answer = await turn(model, messages, rl, root, () => completeFor(messages), {
         gateway: cfg.gateway,
         gatewayToken: cfg.gatewayToken,
-      }, { verify: verifyState, summarize, verbose: args.verbose || state.verbose, trace: state.trace, think: state.think, mcpServers, spawn: runSubagent, checkpoint: persist, reasoning });
+      }, { verify: verifyState, summarize, verbose: args.verbose || state.verbose, trace: state.trace, think: state.think, deep: state.deep, mcpServers, spawn: runSubagent, checkpoint: persist, reasoning });
     } finally {
       console.log = realLog;
     }
@@ -1276,6 +1350,28 @@ async function main(workspaceOverride = null) {
       continue;
     }
 
+    if (input === '/deep' || input.startsWith('/deep ')) {
+      const arg = input.slice('/deep'.length).trim();
+      if (arg === 'on') state.deep = true;
+      else if (arg === 'off') state.deep = false;
+      else state.deep = !state.deep;
+      // An explicit -n still wins; deep mode only changes the default.
+      MAX_STEPS = stepBudgetFor({ maxSteps: args.maxSteps, deep: state.deep });
+      messages[0] = {
+        ...(messages[0] || { role: 'system' }),
+        role: 'system',
+        content: withDeepNote(messages[0]?.content ?? SYSTEM_PROMPT, state.deep),
+      };
+      console.log(
+        C.dim(
+          state.deep
+            ? `  deep work on — ${MAX_STEPS} tool steps per window, up to ${MAX_STEPS * 3} before it stops; it carries on by itself past the first window.\n`
+            : '  deep work off.\n'
+        )
+      );
+      continue;
+    }
+
     if (input === '/sessions') {
       const sessions = await store.list();
       if (!sessions.length) {
@@ -1432,6 +1528,27 @@ async function main(workspaceOverride = null) {
       continue;
     }
 
+    if (input === '/map') {
+      const out = await runTool('repo_map', {}, { root, approve: (d, dt) => approve(rl, d, dt) }).catch(
+        (err) => `repo_map failed: ${err.message}`
+      );
+      console.log('\n' + String(out).split('\n').map((l) => `  ${l}`).join('\n') + '\n');
+      continue;
+    }
+
+    if (input === '/undo' || input.startsWith('/undo ')) {
+      const id = input.slice('/undo'.length).trim();
+      const spinU = spinner('Restoring checkpoint');
+      const out = await runTool(
+        'checkpoint',
+        { action: 'restore', ...(id ? { id } : {}) },
+        { root, approve: (d, dt) => approve(rl, d, dt) }
+      ).catch((err) => `Restore failed: ${err.message}`);
+      spinU.stop();
+      console.log('\n' + toolResult(out, { ok: /^Restored/.test(String(out)) }) + '\n');
+      continue;
+    }
+
     if (input === '/browser' || input === '/browser status') {
       const diagnostic = await browserDiagnostic({ gateway: cfg.gateway });
       console.log('\n' + box([
@@ -1548,6 +1665,8 @@ async function main(workspaceOverride = null) {
       verbose: state.verbose,
       trace: state.trace,
       think: state.think,
+      deep: state.deep,
+      spawn: runSubagent,
       mcpServers,
       spawn: runSubagent,
       checkpoint: persist,

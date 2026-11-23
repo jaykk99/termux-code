@@ -8,6 +8,8 @@ node_modules/
 *.log
 # Hosted-app runtime state: gateway token store, audit log, terminal sandbox
 .data/
+# CLI runtime state: task list, project memory, checkpoints
+.termux-code/
 .sandbox/
 __pycache__/
 *.pyc
