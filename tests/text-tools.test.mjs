@@ -91,6 +91,61 @@ describe('parseTextToolCalls', () => {
     assert.deepEqual(parseTextToolCalls(null), { text: '', calls: [], errors: [] });
   });
 
+  it('takes a tool object written without <tool_call> tags', () => {
+    const r = parseTextToolCalls('{"name": "write_file", "args": {"path": "NOTES.md", "content": "hi"}}');
+    assert.equal(r.calls.length, 1);
+    assert.equal(r.calls[0].name, 'write_file');
+    assert.deepEqual(r.calls[0].args, { path: 'NOTES.md', content: 'hi' });
+    assert.equal(r.text, '');
+  });
+
+  it('takes several bare objects in one reply, in order', () => {
+    const r = parseTextToolCalls(
+      '{"name": "bash", "args": {"command": "ls"}} {"name": "write_file", "args": {"path": "a", "content": "b"}}',
+    );
+    assert.deepEqual(r.calls.map((c) => c.name), ['bash', 'write_file']);
+    assert.deepEqual(r.calls[1].args, { path: 'a', content: 'b' });
+  });
+
+  it('leaves JSON that names no real tool in the visible text', () => {
+    const r = parseTextToolCalls('{"name": "not_a_tool", "args": {}}');
+    assert.equal(r.calls.length, 0);
+    assert.match(r.text, /not_a_tool/);
+  });
+
+  it('never runs a call that has prose around it', () => {
+    const src = 'I will write the file now: {"name": "write_file", "args": {"path": "a", "content": "b"}}';
+    const r = parseTextToolCalls(src);
+    assert.equal(r.calls.length, 0);
+    assert.equal(r.text, src);
+  });
+
+  it('never runs bare objects that are followed by prose', () => {
+    const src = '{"name": "bash", "args": {"command": "ls"}} that should list the folder';
+    const r = parseTextToolCalls(src);
+    assert.equal(r.calls.length, 0);
+    assert.match(r.text, /should list the folder/);
+  });
+
+  it('never runs a call inside a code fence', () => {
+    const r = parseTextToolCalls('```json\n{"name": "bash", "args": {"command": "ls"}}\n```');
+    assert.equal(r.calls.length, 0);
+    assert.match(r.text, /"name": "bash"/);
+  });
+
+  it('ignores a bare object whose JSON never closes', () => {
+    const r = parseTextToolCalls('{"name": "write_file", "args": {"path": "a", "content": "b"');
+    assert.equal(r.calls.length, 0);
+  });
+
+  it('keeps <tool_call> the only parse when both forms are present', () => {
+    const r = parseTextToolCalls(
+      '<tool_call>{"name": "read_file", "args": {"path": "a"}}</tool_call> {"name": "bash", "args": {"command": "ls"}}',
+    );
+    assert.deepEqual(r.calls.map((c) => c.name), ['read_file']);
+    assert.match(r.text, /"name": "bash"/);
+  });
+
   it('parses one call and strips it from the visible text', () => {
     const r = parseTextToolCalls('Let me read that.\n<tool_call>{"name": "read_file", "args": {"path": "a.js"}}</tool_call>');
     assert.equal(r.text, 'Let me read that.');
