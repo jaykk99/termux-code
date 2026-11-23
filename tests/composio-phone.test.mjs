@@ -39,6 +39,7 @@ test('local phone tools: filesystem, editing, web search and the browser, no Com
     'browser',
     'checkpoint',
     'delete_file',
+    'device',
     'diff_files',
     'download_file',
     'edit_file',

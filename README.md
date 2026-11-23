@@ -6,6 +6,21 @@ A coding agent that runs in Termux on Android, backed by the same 19-provider
 pool error-inbox routes across — plus a direct line to your error-inbox agent
 itself.
 
+## Android device control (Termux:API)
+
+The agent now offers a `device` tool with **21 Android actions** for battery,
+Wi-Fi, cameras, sensors, clipboard, contacts, notifications, location, SMS
+reading, flashlight, volume, speech, vibration and approved phone calls.
+Run `/device` for installation diagnostics. Direct commands such as
+`/device battery`, `/device location`, `/device torch on` and
+`/device photo snapshot.jpg` also work when the selected language model
+cannot issue tool calls. Sensitive actions require on-phone approval.
+
+**Requires both** the compatible Termux:API Android app and
+`pkg install termux-api`, plus the corresponding Android permissions.
+This integration cannot grant root, bypass Android's app sandbox or control
+arbitrary apps' private interfaces. See [Android device setup](docs/ANDROID-DEVICE.md).
+
 ## What this is, and what it isn't
 
 This is **not** a fork of Anthropic's Claude Code. `anthropics/claude-code`
