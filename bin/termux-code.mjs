@@ -160,9 +160,13 @@ async function loadHistory(rl) {
 async function saveHistory(rl) {
   try {
     if (!Array.isArray(rl.history)) return;
-    const lines = [...rl.history].reverse().slice(-HISTORY_KEEP);
+    // Do not persist CLI commands containing access codes or API tokens.
+    const lines = [...rl.history].reverse()
+      .filter((line) => !/^\/(?:recon\s+code\b|bro-code\b|gateway-token\b|inbox-key\b|key\s)/i.test(String(line).trim()))
+      .slice(-HISTORY_KEEP);
     await fs.mkdir(CONFIG_DIR, { recursive: true });
-    await fs.writeFile(HISTORY_FILE, lines.join('\n') + '\n', 'utf8');
+    await fs.writeFile(HISTORY_FILE, lines.join('\n') + '\n', { mode: 0o600 });
+    await fs.chmod(HISTORY_FILE, 0o600);
   } catch {
     /* history is a nice-to-have; never fail shutdown over it */
   }
@@ -1594,11 +1598,11 @@ async function main(workspaceOverride = null) {
     if (input === '/recon' || input === '/recon status') {
       const settings = currentRecon();
       if (!settings.enabled) {
-        console.log(C.dim('  ReconAnything disabled. /recon on to enable.\\n'));
+        console.log(C.dim('  ReconAnything disabled. /recon on to enable.\n'));
       } else {
         const result = await runReconTool({ action: 'health' }, { recon: settings });
-        console.log('\\n' + box(wrap(result, width() - 6), { title: 'ReconAnything' }) + '\\n');
-        console.log(C.dim('  active scans: ' + (reconActive ? 'enabled for this session' : 'off (use /recon active on)') + '\\n'));
+        console.log('\n' + box(wrap(result, width() - 6), { title: 'ReconAnything' }) + '\n');
+        console.log(C.dim('  active scans: ' + (reconActive ? 'enabled for this session' : 'off (use /recon active on)') + '\n'));
       }
       continue;
     }
@@ -1609,27 +1613,27 @@ async function main(workspaceOverride = null) {
         cfg.reconDisabled = command === 'off';
         if (cfg.reconDisabled) reconActive = false;
         await saveConfig(cfg);
-        console.log(C.dim('  ReconAnything ' + (cfg.reconDisabled ? 'disabled' : 'enabled') + '.\\n'));
+        console.log(C.dim('  ReconAnything ' + (cfg.reconDisabled ? 'disabled' : 'enabled') + '.\n'));
       } else if (command === 'active on' || command === 'active off') {
         reconActive = command === 'active on' && !cfg.reconDisabled;
-        console.log(C.dim('  Active scanning ' + (reconActive ? 'enabled for this session only' : 'off') + '.\\n'));
+        console.log(C.dim('  Active scanning ' + (reconActive ? 'enabled for this session only' : 'off') + '.\n'));
       } else if (command.startsWith('url ')) {
         try {
           cfg.reconApiUrl = validateReconUrl(command.slice(4).trim());
           cfg.reconDisabled = false;
           await saveConfig(cfg);
-          console.log(C.dim('  ReconAnything backend set to ' + cfg.reconApiUrl + '. Try /recon.\\n'));
+          console.log(C.dim('  ReconAnything backend set to ' + cfg.reconApiUrl + '. Try /recon.\n'));
         } catch (err) {
-          console.log(C.red('  ' + err.message + '\\n'));
+          console.log(C.red('  ' + err.message + '\n'));
         }
       } else if (command.startsWith('code ')) {
         const code = command.slice(5).trim();
         if (code === 'off') delete cfg.reconAccessCode;
         else if (code) cfg.reconAccessCode = code;
         await saveConfig(cfg);
-        console.log(C.dim('  ReconAnything access code ' + (code === 'off' ? 'cleared' : 'saved (not shown)') + '.\\n'));
+        console.log(C.dim('  ReconAnything access code ' + (code === 'off' ? 'cleared' : 'saved (not shown)') + '.\n'));
       } else {
-        console.log(C.dim('  Usage: /recon, /recon on|off, /recon url <http(s)://host:8000>, /recon code <code>|off, /recon active on|off\\n'));
+        console.log(C.dim('  Usage: /recon, /recon on|off, /recon url <http(s)://host:8000>, /recon code <code>|off, /recon active on|off\n'));
       }
       continue;
     }
