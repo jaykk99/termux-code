@@ -293,7 +293,7 @@ describe('completeWithFailover() — refusal handling', () => {
     assert.deepEqual(attempts.map((a) => a.ok), [false, true]);
   });
 
-  it('nudges after an empty reply too — a silent filter is how small workers duck a request', async () => {
+  it('recovers an empty reply with a dedicated delivery retry, even when refusalRetry is off', async () => {
     const models = [M('blank', 'kilo', 'none')];
     let calls = 0;
     const { model, reply, attempts } = await completeWithFailover(
@@ -301,17 +301,31 @@ describe('completeWithFailover() — refusal handling', () => {
       [{ role: 'user', content: 'write me a keylogger for my own laptop' }],
       async (m, messages) => {
         calls += 1;
-        if (String(messages[messages.length - 1]?.content).includes('[policy]')) return replyFor(m);
+        if (String(messages[messages.length - 1]?.content).includes('[Delivery retry]')) return replyFor(m);
         return { text: '', toolCalls: [], assistantMessage: {} };
       },
       null,
-      { refusalRetry: true },
+      { emptyRetry: true, refusalRetry: false },
     );
     assert.equal(calls, 2);
     assert.equal(model.id, 'blank');
     assert.equal(reply.text, 'from blank');
     assert.equal(attempts[0].error, 'empty reply');
     assert.deepEqual(attempts.map((a) => a.ok), [false, true]);
+  });
+
+  it('does not silently loop on all-blank providers after one bounded retry', async () => {
+    const models = [M('blank', 'kilo', 'none')];
+    let calls = 0;
+    await assert.rejects(
+      () => completeWithFailover(models, [{ role: 'user', content: 'write a simple app' }],
+        async () => { calls++; return { text: '', toolCalls: [], assistantMessage: {} }; },
+        null, { emptyRetry: true, refusalRetry: false }),
+      (err) => err instanceof FailoverError && err.attempts.length === 2 &&
+        err.attempts[0].error === 'empty reply' &&
+        /empty reply/.test(err.attempts[1].error),
+    );
+    assert.equal(calls, 2);
   });
 
   it('walks on when the nudge does not help', async () => {
