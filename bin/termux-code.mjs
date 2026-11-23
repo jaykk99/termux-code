@@ -501,12 +501,16 @@ export async function turn(model, messages, rl, root, completeFn, gateway = {}, 
     // object buried in prose: tell the model and let it resend, instead of
     // ending the turn on text nobody can act on. Two asks is the cap; after
     // that the prose is the answer rather than a slow model looping.
-    if (!reply.toolCalls.length && reply.textProtocolErrors?.length && protocolRetries < 2) {
+    if (!reply.toolCalls.length && reply.textProtocolErrors?.length) {
+      if (protocolRetries >= 2) {
+        console.log(C.red('  [tools] This model failed to format tool requests after two retries. No action was executed. Use /model-info and choose a native-tool-capable provider with /model.\\n'));
+        return null;
+      }
       protocolRetries += 1;
-      console.log(C.dim(`  [tools] ${reply.textProtocolErrors.length} tool call(s) not written as <tool_call>, asking the model to resend`));
+      console.log(C.dim(`  [tools] ${reply.textProtocolErrors.length} unwrapped tool request(s); no action executed. Retrying in <tool_call> format (${protocolRetries}/2).`));
       messages.push({
         role: 'user',
-        content: `<tool_result name="error">\nA tool call in your reply could not be read as one:\n${reply.textProtocolErrors[0]}\nSend it as <tool_call>{"name": "...", "args": {...}}</tool_call> with valid JSON and no other text around it.\n</tool_result>`,
+        content: `<tool_result name="error">\nThe proposed tool request was NOT executed:\n${reply.textProtocolErrors[0]}\nTo ACT, send ONLY <tool_call>{"name":"list_dir","args":{"path":"."}}</tool_call> (replace the example with the intended known tool and its valid args), then STOP. Do not explain, describe, fence, or simulate the call.\n</tool_result>`,
       });
       stillWorking = true;
       continue;
