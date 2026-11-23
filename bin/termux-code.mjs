@@ -31,13 +31,15 @@ import { connectAll, loadMcpConfig, parseQualified, runMcpTool, toolsForOpenAI a
 import { projectInstructions, applyProjectInstructions } from '../lib/project-context.mjs';
 import { browserDiagnostic } from '../lib/browser.mjs';
 import { connectGithubRepo, resolveLocalRepo } from '../lib/repo-connector.mjs';
+import { createTaskProgress, observeTaskTool, requestContinuation } from '../lib/task-progress.mjs';
+import { selectEffort, effortConfig, effortInstruction, EFFORT_MODES } from '../lib/effort.mjs';
 
 const CONFIG_DIR = path.join(os.homedir(), '.termux-code');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 const SESSIONS_DIR = path.join(CONFIG_DIR, 'sessions');
 const HISTORY_FILE = path.join(CONFIG_DIR, 'history');
 /** Tool steps per turn. Peer of the --max-steps flag, so it is mutable. */
-let MAX_STEPS = 40;
+let MAX_STEPS = 80;
 const MAX_VERIFY_ATTEMPTS = 3;
 const VERIFY_TIMEOUT_MS = 180_000;
 const HISTORY_KEEP = 200;
@@ -107,7 +109,7 @@ async function loadCatalogue(cfg) {
       const res = await fetch(cfg.gateway.replace(/\/$/, '') + '/api/models', {
         headers: gatewayHeaders(cfg),
         // A dead gateway must not hold startup hostage; local discovery can proceed.
-        signal: AbortSignal.timeout(10_000),
+        signal: AbortSignal.timeout(8_000),
       });
       if (res.ok) {
         const data = await res.json();
@@ -272,9 +274,10 @@ async function chooseModel(models, current, rl) {
  * (Vercel env); only this phone runs the tools. Returns the gateway's reply
  * in the same shape local complete() returns: { text, toolCalls, assistantMessage }.
  */
-export async function completeViaGateway(gateway, model, messages, gatewayToken) {
+export async function completeViaGateway(gateway, model, messages, gatewayToken, { timeoutMs = 30_000 } = {}) {
   const res = await fetch(gateway.replace(/\/$/, '') + '/api/chat', {
     method: 'POST',
+    signal: AbortSignal.timeout(timeoutMs),
     headers: {
       'Content-Type': 'application/json',
       ...(gatewayToken ? { Authorization: `Bearer ${gatewayToken}` } : {}),
@@ -327,6 +330,10 @@ export async function runFailoverTurn(model, models, messages, tracker, complete
   const { model: winner, reply } = await completeWithFailover([model, ...rest], messages, completeOne, tracker, {
     pinFirst: model,
     sessionBadModels,
+    maxAttempts: opts.maxAttempts,
+    maxRetryDelayMs: opts.maxRetryDelayMs,
+    transientRetries: opts.transientRetries,
+    refusalRetry: opts.refusalRetry,
     onAttempt: (a) => {
       if (a.ok) return;
       failures.push(a);
@@ -361,10 +368,12 @@ export async function runFailoverTurn(model, models, messages, tracker, complete
  *   summarize: (prompt) => Promise<string> — for context compaction
  * }
  */
-async function turn(model, messages, rl, root, completeFn, gateway = {}, agent = {}) {
+export async function turn(model, messages, rl, root, completeFn, gateway = {}, agent = {}) {
   const changed = new Set();
   let verifyAttempts = 0;
   let protocolRetries = 0;
+  const originalRequest = [...messages].reverse().find(m => m?.role === 'user' && typeof m.content === 'string')?.content || '';
+  const progress = createTaskProgress(originalRequest);
   for (let step = 0; step < MAX_STEPS; step++) {
     // Plan-first is opt-in, and the note in the system block alone was not
     // enough: a live worker read it, then went straight at the file without
@@ -464,14 +473,23 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
     }
 
     if (!reply.toolCalls.length) {
+      if (requestContinuation(progress, messages)) {
+        console.log(C.dim('  [workflow] Continuing: task has unverified steps.'));
+        if (agent.checkpoint) await agent.checkpoint();
+        continue;
+      }
       // The model thinks it's done. Check its work if it changed anything.
+      if (progress.coding && !progress.changed && !progress.inspected) {
+        console.log(C.red('  [workflow] No project inspection or implementation occurred; task is incomplete.'));
+        return null;
+      }
       // Every exit below returns the final answer so a one-shot run can
       // report it (and set its exit code); null means the turn failed.
       const v = agent.verify;
       if (!changed.size || !v?.enabled || !v.command) return reply.text ?? '';
       if (verifyAttempts >= MAX_VERIFY_ATTEMPTS) {
         console.log(C.red(`\n  [verify] still failing after ${MAX_VERIFY_ATTEMPTS} fix attempts. Stopping here so you can take a look.`));
-        return reply.text ?? null;
+        return null;
       }
       if (!v.approved) {
         v.approved = await approve(rl, `Verify changes: run \`${v.command}\` (asked once per session)`, v.command);
@@ -529,9 +547,9 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
           // The servers come through the agent context: turn() is module-level,
           // so it cannot see main()'s local list (it used to throw
           // "mcpServers is not defined" on every MCP call).
-          result = await runMcpTool(agent.mcpServers || [], call.name, call.args, (d, detail) => approve(rl, d, detail));
+          result = await (agent.mcpRunner || runMcpTool)(agent.mcpServers || [], call.name, call.args, (d, detail) => approve(rl, d, detail));
         } else {
-          result = await runTool(call.name, call.args, {
+          result = await (agent.toolRunner || runTool)(call.name, call.args, {
             root,
             approve: (d, detail) => approve(rl, d, detail),
             // The task tool: a sub-agent with a fresh context (set up in
@@ -548,9 +566,13 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
         result = `Error: ${err.message}`;
         ok = false;
       }
+      observeTaskTool(progress, call.name, call.args, result);
       if (wroteFiles(call.name, result)) for (const p of pathsFromCall(call)) changed.add(p);
       console.log(toolResult(result, { ok: ok && !/Syntax check failed|JSON syntax error|WARNING:/.test(String(result)) }));
       appendToolResult(messages, model, call, result);
+      // A phone can be killed between any two tool calls: persist each completed
+      // call + result, not just the beginning/end of the entire user turn.
+      if (agent.checkpoint) await agent.checkpoint();
     }
   }
   console.log('\n' + C.red(`Stopped after ${MAX_STEPS} tool steps. Say "continue" to resume.`));
@@ -575,6 +597,8 @@ const HELP = [
   ['/session <n>', 'resume a session by number or id'],
   ['/new', 'start a new session'],
   ['/think', 'toggle plan-first mode (TODO.md plan, then work the steps)'],
+  ['/effort <mode>', 'adaptive thinking: auto, fast, balanced, or deep'],
+  ['/model-info', 'show selected model provenance and verification limits'],
   ['/keys', 'show which provider keys are set'],
   ['/key NAME value', 'save a provider key (VENICE_API_KEY, OPENROUTER_API_KEY, …)'],
   ['/trace', "show the model's own text for each step"],
@@ -812,7 +836,7 @@ async function main(workspaceOverride = null) {
    * Session-level switches that the REPL can change at runtime. Quiet is
    * the default: a failed provider is a detail, not news.
    */
-  const state = { verbose: Boolean(args.verbose), think: Boolean(args.think) };
+  const state = { verbose: Boolean(args.verbose), think: Boolean(args.think), effort: 'auto', turnEffort: 'fast' };
   refreshProjectContext();
   // Plan-first: the note rides on the system prompt, so every turn of the
   // session sees it — including the tool results the model reads back.
@@ -831,11 +855,12 @@ async function main(workspaceOverride = null) {
    * chatting; a fresh session retries the gateway.
    */
   const completeFor = async (msgs) => {
-    // refusalRetry: an uncensored route that still declines gets one nudge in
-  // the same turn before the chain walks. Uncensored pool, so a refusal is
-  // nearly always a filter the model does not have.
-  const chainOpts = { verbose: state.verbose, refusalRetry: true };
-    const gatewayTurn = () => runFailoverTurn(model, models, msgs, tracker, (m) => completeViaGateway(cfg.gateway, m, msgs, cfg.gatewayToken), sessionBadModels, chainOpts);
+    const effort = state.think ? 'deep' : state.turnEffort;
+    const chainOpts = { verbose: state.verbose, ...effortConfig(effort) };
+    const prepareMessages = (source) => source.map((msg, i) => i === 0 && msg?.role === 'system'
+      ? { ...msg, content: String(msg.content || '') + '\n\n' + effortInstruction(effort) }
+      : msg);
+    const gatewayTurn = () => runFailoverTurn(model, models, msgs, tracker, (m, context) => completeViaGateway(cfg.gateway, m, prepareMessages(context), cfg.gatewayToken, { timeoutMs: effort === 'fast' ? 12_000 : effort === 'balanced' ? 25_000 : 45_000 }), sessionBadModels, chainOpts);
     // MCP tools are passed in the shape the model's wire format expects; the
     // gateway path gets none because the gateway has its own tool list.
     const directTurn = () =>
@@ -844,7 +869,7 @@ async function main(workspaceOverride = null) {
         models,
         msgs,
         tracker,
-        (m) => complete(m, msgs, process.env, m.auth === 'anthropic' ? mcpToolsAnthropic : mcpToolsOAI),
+        (m, context) => complete(m, prepareMessages(context), process.env, m.auth === 'anthropic' ? mcpToolsAnthropic : mcpToolsOAI, { effort }),
         sessionBadModels,
         chainOpts
       );
@@ -917,7 +942,7 @@ async function main(workspaceOverride = null) {
       { role: 'user', content: extraContext ? `${taskPrompt}\n\n[context]\n${extraContext}` : taskPrompt },
     ];
     const before = MAX_STEPS;
-    MAX_STEPS = Math.min(8, before);
+    MAX_STEPS = Math.min(16, before);
     try {
       const out = await turn(
         model,
@@ -940,6 +965,7 @@ async function main(workspaceOverride = null) {
   // One prompt, no REPL. Exit 0 only when the turn actually produced an
   // answer, so `termux-code -p ...` is usable from a script.
   if (oneShot) {
+    state.turnEffort = selectEffort(prompt, state.effort);
     messages.push({ role: 'user', content: prompt });
     await persist();
     const realLog = console.log;
@@ -949,7 +975,7 @@ async function main(workspaceOverride = null) {
       answer = await turn(model, messages, rl, root, () => completeFor(messages), {
         gateway: cfg.gateway,
         gatewayToken: cfg.gatewayToken,
-      }, { verify: verifyState, summarize, verbose: args.verbose || state.verbose, trace: state.trace, think: state.think, spawn: runSubagent, mcpServers });
+      }, { verify: verifyState, summarize, verbose: args.verbose || state.verbose, trace: state.trace, think: state.think, mcpServers, spawn: runSubagent, checkpoint: persist });
     } finally {
       console.log = realLog;
     }
@@ -1178,6 +1204,22 @@ async function main(workspaceOverride = null) {
       console.log(
         C.dim(`  ${name} set for this session and saved. ${models.length} model(s) available now — /models, then /model.\n`)
       );
+      continue;
+    }
+
+    if (input === '/effort' || input.startsWith('/effort ')) {
+      const wanted = input.slice('/effort'.length).trim().toLowerCase();
+      if (!wanted) console.log(C.dim('  Thinking effort: ' + state.effort + ' (auto chooses by task)\n'));
+      else if (EFFORT_MODES.includes(wanted)) {
+        state.effort = wanted;
+        console.log(C.dim('  Thinking effort set to ' + wanted + '.\n'));
+      } else console.log(C.dim('  Usage: /effort auto|fast|balanced|deep\n'));
+      continue;
+    }
+
+    if (input === '/model-info') {
+      console.log(C.dim('  Selected: ' + model.provider + '/' + model.id + ' (' + model.source + ')\n' +
+        '  Classification: model name/provider allowlist. This is not proof that a hosted model is unfiltered; providers can change routing and models may decline requests.\n'));
       continue;
     }
 
@@ -1440,6 +1482,7 @@ async function main(workspaceOverride = null) {
       continue;
     }
 
+    state.turnEffort = selectEffort(input, state.effort);
     messages.push({ role: 'user', content: input });
     // Save the user's message BEFORE the turn runs: if Termux is killed
     // mid-turn, the old code only persisted after turn() returned, so the
@@ -1468,8 +1511,9 @@ async function main(workspaceOverride = null) {
       verbose: state.verbose,
       trace: state.trace,
       think: state.think,
-      spawn: runSubagent,
       mcpServers,
+      spawn: runSubagent,
+      checkpoint: persist,
     });
     await persist();
     console.log('');

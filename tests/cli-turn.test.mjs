@@ -104,6 +104,19 @@ describe('completeViaGateway()', () => {
     assert.deepEqual(reply.toolCalls, []);
   });
 
+  it('honors a short per-request gateway deadline', async () => {
+    seen = [];
+    responder = (_url, options) => new Promise((_resolve, reject) => {
+      options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true });
+    });
+    await assert.rejects(
+      () => completeViaGateway('https://gw.example.com', model, messages, null, { timeoutMs: 20 }),
+      /abort|timeout/i,
+    );
+    assert.equal(seen.length, 1);
+    assert.ok(seen[0].options.signal.aborted);
+  });
+
   it('treats a 401 as terminal so the chain does not retry the same gate', async () => {
     responder = () => jsonRes({ error: { message: 'bad token', code: 'NO_KEY' } }, { ok: false, status: 401 });
     await assert.rejects(
