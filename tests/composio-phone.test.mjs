@@ -42,6 +42,7 @@ test('local phone tools: filesystem, editing, web search and the browser, no Com
     'grep',
     'list_dir',
     'multi_edit',
+    'phone',
     'read_file',
     'run_tests',
     'task',

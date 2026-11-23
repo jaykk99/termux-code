@@ -28,6 +28,9 @@ import { C, box, banner, toolHeader, toolResult, spinner, pick, wrap, width, ren
 import { isRefusalResponse } from '../lib/refusal.mjs';
 import { parseArgs, USAGE, approvalModeFor, deniedNote, pickModel, withPlanNote } from '../lib/cli-args.mjs';
 import { connectAll, loadMcpConfig, parseQualified, runMcpTool, toolsForOpenAI as mcpToolsForOpenAI, toolsForAnthropic as mcpToolsForAnthropic } from '../lib/mcp.mjs';
+import { projectInstructions, applyProjectInstructions } from '../lib/project-context.mjs';
+import { browserDiagnostic } from '../lib/browser.mjs';
+import { connectGithubRepo, resolveLocalRepo } from '../lib/repo-connector.mjs';
 
 const CONFIG_DIR = path.join(os.homedir(), '.termux-code');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
@@ -579,6 +582,8 @@ const HELP = [
   ['/context', 'show how much context the session uses'],
   ['/clear', 'forget this conversation'],
   ['/cwd', 'show the workspace root'],
+  ['/repo <owner/repo|path>', 'connect to a GitHub or local repository workspace'],
+  ['/browser', 'check browser access, Chromium and gateway fallback'],
   ['/exit', 'quit'],
 ];
 
@@ -615,7 +620,7 @@ function quietIo() {
   };
 }
 
-async function main() {
+async function main(workspaceOverride = null) {
   // ---- command line --------------------------------------------------
   // Before this, the CLI ignored argv entirely: `--help` and `--version`
   // started a full session and printed the banner instead.
@@ -634,9 +639,9 @@ async function main() {
     console.log(await versionString());
     return;
   }
-  if (args.cwd) {
+  if (workspaceOverride || args.cwd) {
     try {
-      process.chdir(args.cwd);
+      process.chdir(workspaceOverride || args.cwd);
     } catch (err) {
       console.error(C.red(`termux-code: cannot use ${args.cwd}: ${err.message}`));
       process.exitCode = 2;
@@ -767,6 +772,11 @@ async function main() {
   const messages = cleanedSession.length
     ? cleanedSession
     : [{ role: 'system', content: SYSTEM_PROMPT }];
+  // Always use the active workspace's memory, not stale system instructions
+  // embedded in an older session from another working directory.
+  const projectNote = await projectInstructions(root);
+  const refreshProjectContext = () =>
+    applyProjectInstructions(messages, withPlanNote(SYSTEM_PROMPT, state?.think || false), projectNote);
 
   /** Persist the conversation without ever breaking the loop. A failed
    *  save is no longer silent: if the phone can't write, Jay should know
@@ -799,6 +809,7 @@ async function main() {
    * the default: a failed provider is a detail, not news.
    */
   const state = { verbose: Boolean(args.verbose), think: Boolean(args.think) };
+  refreshProjectContext();
   // Plan-first: the note rides on the system prompt, so every turn of the
   // session sees it — including the tool results the model reads back.
   if (state.think && messages[0]?.role === 'system') {
@@ -1120,6 +1131,7 @@ async function main() {
     if (input === '/clear') {
       messages.length = 0;
       messages.push({ role: 'system', content: withPlanNote(SYSTEM_PROMPT, state.think) });
+      refreshProjectContext();
       await persist();
       console.log(C.dim('  Conversation cleared.\n'));
       continue;
@@ -1219,6 +1231,7 @@ async function main() {
       session = loaded;
       messages.length = 0;
       messages.push(...(loaded.messages.length ? loaded.messages : [{ role: 'system', content: SYSTEM_PROMPT }]));
+      refreshProjectContext();
       console.log('  ' + sessionHeadline(session) + '\n');
       continue;
     }
@@ -1228,6 +1241,7 @@ async function main() {
       session = { meta: await store.create('untitled'), messages: [] };
       messages.length = 0;
       messages.push({ role: 'system', content: SYSTEM_PROMPT });
+      refreshProjectContext();
       console.log('  ' + sessionHeadline(session) + '\n');
       continue;
     }
@@ -1333,6 +1347,68 @@ async function main() {
         cfg.verify = arg;
       }
       console.log(C.dim(`  verify ${verifyState.enabled ? 'on' : 'off'}${verifyState.command ? `: ${verifyState.command}` : ' (no command found)'}`) + '\n');
+      continue;
+    }
+
+    if (input === '/browser' || input === '/browser status') {
+      const diagnostic = await browserDiagnostic({ gateway: cfg.gateway });
+      console.log('\n' + box([
+        diagnostic.chromium
+          ? C.green('Chromium: detected (' + diagnostic.chromium + ')')
+          : C.amber('Chromium: not detected'),
+        diagnostic.interactive
+          ? C.green('Interactive browser: supported by Node; runtime connection not yet tested')
+          : C.amber('Interactive browser: Node WebSocket unavailable'),
+        diagnostic.gateway
+          ? C.green('Gateway: configured (read-only page fallback; not tested)')
+          : C.dim('Gateway: not configured'),
+        '',
+        C.dim(diagnostic.chromium
+          ? 'Use the agent browser tool to open, read, click, type or screenshot. CDP capability requires a live smoke test.'
+          : 'Install with: pkg install chromium. Without Chromium, the gateway can read page text only.')
+      ], { title: 'browser access' }) + '\n');
+      continue;
+    }
+
+    if (input === '/repo' || input === '/repo status') {
+      console.log(C.dim('  Active repo workspace: ' + root + '\n'));
+      continue;
+    }
+
+    if (input.startsWith('/repo ')) {
+      const target = input.slice(6).trim();
+      if (!target) {
+        console.log(C.dim('  Usage: /repo owner/name, /repo https://github.com/owner/name, or /repo /path/to/local/repo\n'));
+        continue;
+      }
+      try {
+        let nextRoot;
+        if (/^(?:[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+|https:\/\/github\.com\/)/.test(target)) {
+          const connected = await connectGithubRepo(target, {
+            approve: (desc, detail) => approve(rl, desc, detail),
+          });
+          if (!connected.connected) {
+            console.log(C.dim('  ' + connected.reason + '\n'));
+            continue;
+          }
+          nextRoot = connected.root;
+        } else {
+          nextRoot = await resolveLocalRepo(target);
+        }
+        if (nextRoot === root) {
+          console.log(C.dim('  Already connected to this repository.\n'));
+          continue;
+        }
+        await persist();
+        await saveHistory(rl);
+        rl.close();
+        console.log(C.green('  Connected to repository: ' + nextRoot));
+        console.log(C.dim('  Reloading model tools, project memory and verification in this workspace.\n'));
+        await main(nextRoot);
+        return;
+      } catch (err) {
+        console.log(C.red('  Repository connection failed: ' + String(err?.message || err).slice(0,300) + '\n'));
+      }
       continue;
     }
 
