@@ -108,6 +108,7 @@ async function loadCatalogue(cfg) {
     try {
       const res = await fetch(cfg.gateway.replace(/\/$/, '') + '/api/models', {
         headers: gatewayHeaders(cfg),
+        signal: AbortSignal.timeout(8_000),
       });
       if (res.ok) {
         const data = await res.json();
@@ -275,6 +276,7 @@ async function chooseModel(models, current, rl) {
 export async function completeViaGateway(gateway, model, messages, gatewayToken) {
   const res = await fetch(gateway.replace(/\/$/, '') + '/api/chat', {
     method: 'POST',
+    signal: AbortSignal.timeout(30_000),
     headers: {
       'Content-Type': 'application/json',
       ...(gatewayToken ? { Authorization: `Bearer ${gatewayToken}` } : {}),
@@ -834,10 +836,10 @@ async function main(workspaceOverride = null) {
   const completeFor = async (msgs) => {
     const effort = state.think ? 'deep' : state.turnEffort;
     const chainOpts = { verbose: state.verbose, ...effortConfig(effort) };
-    const requestMessages = msgs.map((msg, i) => i === 0 && msg?.role === 'system'
+    const prepareMessages = (source) => source.map((msg, i) => i === 0 && msg?.role === 'system'
       ? { ...msg, content: String(msg.content || '') + '\n\n' + effortInstruction(effort) }
       : msg);
-    const gatewayTurn = () => runFailoverTurn(model, models, msgs, tracker, (m) => completeViaGateway(cfg.gateway, m, requestMessages, cfg.gatewayToken), sessionBadModels, chainOpts);
+    const gatewayTurn = () => runFailoverTurn(model, models, msgs, tracker, (m, context) => completeViaGateway(cfg.gateway, m, prepareMessages(context), cfg.gatewayToken), sessionBadModels, chainOpts);
     // MCP tools are passed in the shape the model's wire format expects; the
     // gateway path gets none because the gateway has its own tool list.
     const directTurn = () =>
@@ -846,7 +848,7 @@ async function main(workspaceOverride = null) {
         models,
         msgs,
         tracker,
-        (m) => complete(m, requestMessages, process.env, m.auth === 'anthropic' ? mcpToolsAnthropic : mcpToolsOAI),
+        (m, context) => complete(m, prepareMessages(context), process.env, m.auth === 'anthropic' ? mcpToolsAnthropic : mcpToolsOAI),
         sessionBadModels,
         chainOpts
       );
