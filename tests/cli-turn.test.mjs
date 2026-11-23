@@ -8,7 +8,7 @@
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { completeViaGateway, runFailoverTurn } from '../bin/termux-code.mjs';
+import { completeViaGateway, runFailoverTurn, defaultModel } from '../bin/termux-code.mjs';
 import { FailureTracker, FailoverError } from '../lib/failover.mjs';
 
 const jsonRes = (body, { ok = true, status = 200 } = {}) => ({
@@ -43,6 +43,25 @@ async function captureLog(fn) {
     console.log = realLog;
   }
 }
+
+describe('defaultModel() — nothing aligned is ever seated', () => {
+  const aligned = { id: 'gpt-4o-mini', provider: 'githubmodels', auth: 'bearer', free: true, source: 'direct', label: 'GPT-4o mini' };
+
+  it('starts on Horde when it is in the catalogue', () => {
+    const horde = M('any', 'horde');
+    assert.equal(defaultModel([aligned, horde]).provider, 'horde');
+  });
+
+  it('picks an uncensored route over a free aligned one anywhere in the list', () => {
+    const unc = { id: 'dolphin', provider: 'naga', auth: 'bearer', free: false, source: 'direct', label: 'Dolphin uncensored' };
+    assert.equal(defaultModel([aligned, unc]).id, 'dolphin');
+  });
+
+  it('returns null when every candidate is aligned, instead of taking models[0]', () => {
+    assert.equal(defaultModel([aligned]), null);
+    assert.equal(defaultModel([]), null);
+  });
+});
 
 describe('completeViaGateway()', () => {
   const model = M('any', 'horde');

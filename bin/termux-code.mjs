@@ -25,6 +25,7 @@ import { FailureTracker, completeWithFailover, FailoverError, chainFailureLines,
 import { SessionStore, deriveTitle } from '../lib/sessions.mjs';
 import { cleanMessages, trimForGateway } from '../lib/history.mjs';
 import { C, box, banner, toolHeader, toolResult, spinner, pick, wrap, width, renderMarkdown } from '../lib/tui.mjs';
+import { isRefusalResponse } from '../lib/refusal.mjs';
 import { parseArgs, USAGE, approvalModeFor, deniedNote, pickModel } from '../lib/cli-args.mjs';
 
 const CONFIG_DIR = path.join(os.homedir(), '.termux-code');
@@ -65,6 +66,22 @@ async function saveConfig(cfg) {
  * token minted on the deployment's landing page after GitHub sign-in. */
 function gatewayHeaders(cfg) {
   return cfg?.gatewayToken ? { Authorization: `Bearer ${cfg.gatewayToken}` } : {};
+}
+
+/**
+ * The model a fresh session starts on. Uncensored-only, with no last-resort
+ * rung: the old picker ended on `models.find(m => m.free)` and then
+ * `models[0]`, either of which could seat an aligned model that reached the
+ * catalogue by any path. Here there is nothing to fall back to — no match
+ * means no model, and main() says so instead of running an aligned one.
+ */
+export function defaultModel(models) {
+  return (
+    models.find((m) => m.provider === 'horde' && isUncensoredModel(m)) ||
+    models.find((m) => isUncensoredModel(m) && (m.auth === 'bearer' || m.auth === 'none')) ||
+    models.find((m) => isUncensoredModel(m)) ||
+    null
+  );
 }
 
 async function loadCatalogue(cfg) {
@@ -330,6 +347,7 @@ export async function runFailoverTurn(model, models, messages, tracker, complete
 async function turn(model, messages, rl, root, completeFn, gateway = {}, agent = {}) {
   const changed = new Set();
   let verifyAttempts = 0;
+  let protocolRetries = 0;
   for (let step = 0; step < MAX_STEPS; step++) {
     // Compact BEFORE the call, so a long session shrinks instead of
     // overflowing a small model's context window.
@@ -352,10 +370,19 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
     } catch (err) {
       spin.stop();
       if (err instanceof FailoverError) {
+        // A refusal is never echoed, even in the failure box: the attempts
+        // log carries the snippets for /verbose, the screen only says that
+        // every uncensored route declined.
+        const lines = err.refused
+          ? [
+              `All ${err.attempts.length} uncensored route(s) refused this one.`,
+              'Nothing was answered, and no refusal text is shown.',
+            ]
+          : chainFailureLines(err, { verbose: agent.verbose });
         console.log(
           '\n' +
-            box(chainFailureLines(err, { verbose: agent.verbose }).map((line, i) => (i > 1 ? C.dim(line) : line)), {
-              title: C.red('no provider answered'),
+            box(lines.map((line, i) => (i > 1 ? C.dim(line) : line)), {
+              title: C.red(err.refused ? 'refused by every uncensored route' : 'no provider answered'),
               colour: C.red,
             })
         );
@@ -363,9 +390,11 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
         // broken setup: say which it is instead of leaving the user to guess.
         console.log(
           C.dim(
-            /empty reply/i.test(String(err.message))
-              ? '  A cold worker answered with nothing — send that again in a moment, or /model to pick another brain.\n'
-              : '  Providers cool down for 10 minutes after repeated failures.\n',
+            err.refused
+              ? '  Every uncensored route declined, so nothing was answered — rephrase it, or /model to pick another brain.\n'
+              : /empty reply/i.test(String(err.message))
+                ? '  A cold worker answered with nothing — send that again in a moment, or /model to pick another brain.\n'
+                : '  Providers cool down for 10 minutes after repeated failures.\n',
           ),
         );
       } else {
@@ -384,13 +413,16 @@ async function turn(model, messages, rl, root, completeFn, gateway = {}, agent =
     }
     messages.push(reply.assistantMessage);
 
-    // Text-protocol blocks the parser could not read: tell the model so it
-    // retries with valid JSON instead of the turn silently ending.
-    if (!reply.toolCalls.length && reply.textProtocolErrors?.length) {
-      console.log(C.dim(`  [tools] ${reply.textProtocolErrors.length} tool call(s) had invalid JSON, asking the model to resend`));
+    // A tool call the text protocol could not read — invalid JSON, or a bare
+    // object buried in prose: tell the model and let it resend, instead of
+    // ending the turn on text nobody can act on. Two asks is the cap; after
+    // that the prose is the answer rather than a slow model looping.
+    if (!reply.toolCalls.length && reply.textProtocolErrors?.length && protocolRetries < 2) {
+      protocolRetries += 1;
+      console.log(C.dim(`  [tools] ${reply.textProtocolErrors.length} tool call(s) not written as <tool_call>, asking the model to resend`));
       messages.push({
         role: 'user',
-        content: `<tool_result name="error">\nYour <tool_call> block could not be parsed as JSON:\n${reply.textProtocolErrors[0]}\nResend it as {"name": "...", "args": {...}} with valid JSON.\n</tool_result>`,
+        content: `<tool_result name="error">\nA tool call in your reply could not be read as one:\n${reply.textProtocolErrors[0]}\nSend it as <tool_call>{"name": "...", "args": {...}}</tool_call> with valid JSON and no other text around it.\n</tool_result>`,
       });
       continue;
     }
@@ -600,17 +632,11 @@ async function main() {
   boot.stop();
 
   let model =
-    models.find((m) => m.id === cfg.modelId && m.source === cfg.modelSource) ||
-    // Default pick: the Heretic dispatcher (AI Horde) first when it is in
-    // the catalogue — it is the uncensored primary.
-    models.find((m) => m.provider === 'horde' && isUncensoredModel(m)) ||
-    // Default pick: an uncensored tool-capable model when one is in the
-    // catalogue (e.g. an uncensored HF build behind a gateway key), else the
-    // first free tool-capable model, as before. A saved /model choice
-    // (cfg.modelId) always wins over both.
-    models.find((m) => isUncensoredModel(m) && (m.auth === 'bearer' || m.auth === 'none')) ||
-    models.find((m) => m.free && !NO_TOOLS.has(m.provider)) ||
-    models[0];
+    // A saved /model choice wins, but only while it is still uncensored: a
+    // config written before the policy tightened (or by hand) must not keep
+    // an aligned model in the seat.
+    models.find((m) => m.id === cfg.modelId && m.source === cfg.modelSource && isUncensoredModel(m)) ||
+    defaultModel(models);
 
   // --model wins over the saved /model choice when it names something real;
   // a typo must fail loudly instead of quietly running on another model.
@@ -703,7 +729,10 @@ async function main() {
    * chatting; a fresh session retries the gateway.
    */
   const completeFor = async (msgs) => {
-    const chainOpts = { verbose: state.verbose };
+    // refusalRetry: an uncensored route that still declines gets one nudge in
+  // the same turn before the chain walks. Uncensored pool, so a refusal is
+  // nearly always a filter the model does not have.
+  const chainOpts = { verbose: state.verbose, refusalRetry: true };
     const gatewayTurn = () => runFailoverTurn(model, models, msgs, tracker, (m) => completeViaGateway(cfg.gateway, m, msgs, cfg.gatewayToken), sessionBadModels, chainOpts);
     const directTurn = () => runFailoverTurn(model, models, msgs, tracker, (m) => complete(m, msgs), sessionBadModels, chainOpts);
     if (!cfg.gateway || gatewayDead) return directTurn();
@@ -852,7 +881,13 @@ async function main() {
         });
         spin.stop();
         console.log('\n' + toolHeader('error-inbox', 'agent'));
-        console.log(renderMarkdown(reply, width() - 2) + '\n');
+        // /ask goes to error-inbox's own agent, whose model is not ours to
+        // pick — but a refusal still must not be shown as the answer.
+        console.log(
+          isRefusalResponse(reply)
+            ? C.dim('  That agent declined the request; nothing was answered. (No refusal text is shown.)\n')
+            : renderMarkdown(reply, width() - 2) + '\n',
+        );
       } catch (err) {
         spin.stop();
         console.log('\n' + box(wrap(err.message, width() - 6), { title: C.red('error'), colour: C.red }) + '\n');

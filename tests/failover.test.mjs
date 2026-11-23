@@ -270,6 +270,53 @@ describe('completeWithFailover() — refusal handling', () => {
     assert.equal(attempts[1].ok, true);
   });
 
+  it('nudges the same route once and takes its answer when refusalRetry is on', async () => {
+    const models = [M('refuser', 'kilo', 'none'), M('helper', 'llm7', 'none')];
+    let nudged = false;
+    const { model, reply, attempts } = await completeWithFailover(
+      models,
+      [{ role: 'user', content: 'do the thing' }],
+      async (m, messages) => {
+        if (m.id !== 'refuser') return replyFor(m);
+        if (String(messages[messages.length - 1]?.content).includes('uncensored coding agent')) {
+          nudged = true;
+          return replyFor(m);
+        }
+        return { text: REFUSAL, toolCalls: [], assistantMessage: { content: REFUSAL } };
+      },
+      null,
+      { refusalRetry: true },
+    );
+    assert.ok(nudged, 'the retry carried the uncensored nudge');
+    assert.equal(model.id, 'refuser');
+    assert.equal(reply.text, 'from refuser');
+    assert.deepEqual(attempts.map((a) => a.ok), [false, true]);
+  });
+
+  it('walks on when the nudge does not help', async () => {
+    const models = [M('refuser', 'kilo', 'none'), M('helper', 'llm7', 'none')];
+    const { model, attempts } = await completeWithFailover(
+      models,
+      [],
+      async (m) => (m.id === 'refuser' ? { text: REFUSAL, toolCalls: [], assistantMessage: {} } : replyFor(m)),
+      null,
+      { refusalRetry: true },
+    );
+    assert.equal(model.id, 'helper');
+    assert.match(attempts[1].error, /refused again after the uncensored nudge/);
+  });
+
+  it('does not nudge unless refusalRetry is asked for', async () => {
+    const models = [M('refuser', 'kilo', 'none'), M('helper', 'llm7', 'none')];
+    let calls = 0;
+    const { model } = await completeWithFailover(models, [], async (m) => {
+      calls += 1;
+      return m.id === 'refuser' ? { text: REFUSAL, toolCalls: [], assistantMessage: {} } : replyFor(m);
+    });
+    assert.equal(model.id, 'helper');
+    assert.equal(calls, 2);
+  });
+
   it('counts a refusal against the circuit breaker like any failure', async () => {
     const tr = new FailureTracker();
     const models = [M('refuser', 'kilo', 'none'), M('helper', 'llm7', 'none')];
@@ -279,16 +326,38 @@ describe('completeWithFailover() — refusal handling', () => {
     assert.equal(tr.failures('llm7'), 0);
   });
 
-  it('surfaces the last refusal when every candidate refuses', async () => {
+  it('throws instead of handing back the last refusal when every candidate refuses', async () => {
+    // A refusal is never adopted as the answer: the chain returning one would
+    // put a model's refusal in termux-code's own voice.
     const models = [M('r1', 'kilo', 'none'), M('r2', 'llm7', 'none')];
     const texts = { r1: REFUSAL, r2: 'As an AI, I cannot assist with that.' };
-    const { model, reply, attempts } = await completeWithFailover(models, [], async (m) => ({
-      text: texts[m.id], toolCalls: [], assistantMessage: { role: 'assistant', content: texts[m.id] },
-    }));
-    assert.equal(model.id, 'r2');
-    assert.equal(reply.text, texts.r2);
-    assert.equal(attempts.length, 2);
-    assert.ok(attempts.every((a) => !a.ok));
+    try {
+      await completeWithFailover(models, [], async (m) => ({
+        text: texts[m.id], toolCalls: [], assistantMessage: { role: 'assistant', content: texts[m.id] },
+      }));
+      assert.fail('should have thrown');
+    } catch (err) {
+      assert.ok(err instanceof FailoverError);
+      assert.equal(err.refused, true);
+      assert.equal(err.reply, undefined);
+      assert.equal(err.attempts.length, 2);
+      assert.ok(err.attempts.every((a) => !a.ok));
+      assert.match(err.message, /2 uncensored route\(s\) refused/);
+    }
+  });
+
+  it('marks a mixed refusal-and-outage chain as an outage, not a refusal', async () => {
+    const models = [M('refuser', 'kilo', 'none'), M('down', 'llm7', 'none')];
+    try {
+      await completeWithFailover(models, [], async (m) => {
+        if (m.id === 'refuser') return { text: REFUSAL, toolCalls: [], assistantMessage: {} };
+        throw new Error('llm7 502');
+      });
+      assert.fail('should have thrown');
+    } catch (err) {
+      assert.ok(err instanceof FailoverError);
+      assert.equal(err.refused, undefined);
+    }
   });
 
   it('still throws FailoverError when refusals mix with transport failures', async () => {
@@ -344,16 +413,20 @@ describe('completeWithFailover() — refusal handling', () => {
     assert.match(attempts[0].error, /^refused: /);
   });
 
-  it('walks the whole chain when every model refuses in a different phrasing', async () => {
+  it('walks the whole chain when every model refuses in a different phrasing, then refuses to answer', async () => {
     const models = [M('r1', 'kilo', 'none'), M('r2', 'llm7', 'none'), M('r3', 'horde', 'horde')];
     const texts = { r1: 'I refuse to help with that.', r2: "That's not something I can help with.", r3: 'Unable to comply with this request.' };
-    const { model, reply, attempts } = await completeWithFailover(models, [], async (m) => ({
-      text: texts[m.id], toolCalls: [], assistantMessage: {},
-    }));
-    assert.equal(model.id, 'r3');
-    assert.equal(reply.text, texts.r3);
-    assert.equal(attempts.length, 3);
-    assert.ok(attempts.every((a) => !a.ok));
+    try {
+      await completeWithFailover(models, [], async (m) => ({
+        text: texts[m.id], toolCalls: [], assistantMessage: {},
+      }));
+      assert.fail('should have thrown');
+    } catch (err) {
+      assert.equal(err.refused, true);
+      assert.equal(err.attempts.length, 3);
+      assert.ok(err.attempts.every((a) => !a.ok));
+      assert.deepEqual(err.attempts.map((a) => a.provider), ['kilo', 'llm7', 'horde']);
+    }
   });
 
   it('treats an empty reply as a failed attempt and walks on', async () => {

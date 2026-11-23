@@ -76,9 +76,9 @@ const completeFn = (model, messages) =>
 /**
  * Preferred model first, honestly: one direct attempt on `preferred`,
  * then the failover chain over everything else. A refusal from the
- * preferred model counts as a failed attempt, never as the answer, so a
- * refusal only reaches the user when the whole chain refused (in which
- * case completeWithFailover returns the last refusal as the reply).
+ * preferred model counts as a failed attempt, never as the answer: the
+ * chain walks, and if every uncensored route refuses the turn fails with
+ * an error instead of adopting a model's refusal as the answer.
  *
  * Used for EVERY turn of the conversation, including the follow-up
  * completions after tool results: those used to call the winning model
@@ -112,9 +112,18 @@ async function turnWithFailover(candidates, messages, preferred, attempts) {
   }
   if (rest.length === 0) {
     const last = attempts[attempts.length - 1];
-    throw new Error(last?.error || 'No models are available.');
+    // The only candidate was the preferred one, so there is no chain to walk.
+    // A refusal stays a refusal: it is reported, never relayed as the answer.
+    throw new Error(
+      last?.error === 'refused'
+        ? 'The model refused, and there is no other uncensored route to try.'
+        : last?.error || 'No models are available.',
+    );
   }
-  const out = await completeWithFailover(rest, messages, completeFn, tracker);
+  // refusalRetry: one nudge on the same route before the chain walks — the
+  // pool is uncensored, so a refusal is nearly always a filter the model does
+  // not have.
+  const out = await completeWithFailover(rest, messages, completeFn, tracker, { refusalRetry: true });
   attempts.push(...out.attempts);
   return { model: out.model, reply: out.reply };
 }

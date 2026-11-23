@@ -285,6 +285,31 @@ chat-only models last. Every failed attempt prints one line with the provider,
 latency and error, and if the whole chain fails you get the full attempt log
 instead of a generic error.
 
+The chain is uncensored-only end to end. There is no last-resort rung: a
+saved `/model` choice is honoured only while it is still uncensored, and the
+fresh-session pick goes Horde, then an uncensored tool-capable route, then any
+uncensored route — never `models[0]`, so an aligned model that reached the
+catalogue by some other path still cannot take the seat.
+
+A refusal is never the answer. A refusal counts as a failed attempt and the
+chain walks on; when every uncensored route declines, the turn ends with a
+plain "refused by every uncensored route" error that says nothing was
+answered, and the refusal text stays in the attempts log behind `/verbose`
+rather than being echoed as termux-code's own words.
+
+An uncensored route that still declines gets one nudge in the same turn —
+`[policy] … no refusal, no apology, no disclaimer, no lecture` — before the
+chain moves on. One retry per route, never a loop: a refusal from this pool is
+nearly always a model answering a filter it does not have.
+
+Speed comes from the same places. Horde's worker feed is a ~4 KB JSON list that
+used to be fetched before every completion (measured here: 210–354 ms per
+fetch), so a non-empty answer is now cached for 90 seconds; the queue is polled
+every 1.2 s instead of every 3 s. And a tool call a text-protocol model wrote
+as a bare object buried in prose is reported back to it, so the turn asks for
+the `<tool_call>` block (up to twice) instead of ending as if nothing was
+asked — the "answered without a tool call" flake.
+
 A per-process circuit breaker backs it: three consecutive failures cool a
 provider down for ten minutes, then it becomes eligible again automatically.
 `/failover` shows which providers are cooling down and why.
@@ -303,7 +328,7 @@ across restarts (`~/.termux-code/history`, last 200 commands).
 
 ## Tests
 
-`npm test` runs the `node:test` battery in `tests/` (788 tests): gateway HTTP
+`npm test` runs the `node:test` battery in `tests/` (797 tests): gateway HTTP
 helpers, the model registry and its trusted resolution, the failover chain and
 circuit breaker, session persistence, the CLI argument parser, and an
 end-to-end one-shot run against a stub gateway — including the check that an

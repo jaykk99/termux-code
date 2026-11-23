@@ -4,9 +4,9 @@
  * any-worker job rather than let an aligned worker answer).
  * Run: node --test tests/
  */
-import { describe, it, before, after } from 'node:test';
+import { describe, it, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { complete, pickHordeUncensoredModels, SYSTEM_PROMPT } from '../lib/agent.mjs';
+import { complete, pickHordeUncensoredModels, clearHordeProbeCache, SYSTEM_PROMPT } from '../lib/agent.mjs';
 
 const HORDE_URL = 'https://aihorde.net/api/v2/generate/text/async';
 const hordeModel = {
@@ -21,6 +21,10 @@ const realFetch = globalThis.fetch;
 before(() => {
   globalThis.fetch = async (url, options) => responder(url, options);
 });
+// The worker list is cached for 90s in-process; each test stubs its own feed,
+// so the cache is cleared before every one of them (and by hand inside the
+// cache test itself, which counts the probes).
+beforeEach(() => clearHordeProbeCache());
 after(() => { globalThis.fetch = realFetch; });
 
 describe('pickHordeUncensoredModels()', () => {
@@ -59,6 +63,22 @@ describe('pickHordeUncensoredModels()', () => {
 });
 
 describe('callHorde() via complete()', () => {
+  it('asks the worker feed once for several completions', async () => {
+    clearHordeProbeCache();
+    let probes = 0;
+    responder = async (url) => {
+      if (url.includes('/status/models')) {
+        probes += 1;
+        return jsonRes([{ name: 'koboldcpp/L3-8B-Stheno-v3.2-GGUF', count: 1, eta: 0 }]);
+      }
+      if (url.endsWith('/async')) return jsonRes({ id: 'job1' });
+      return jsonRes({ done: true, generations: [{ text: 'hello uncensored' }] });
+    };
+    await complete(hordeModel, [{ role: 'user', content: 'hi' }], {});
+    await complete(hordeModel, [{ role: 'user', content: 'again' }], {});
+    assert.equal(probes, 1);
+  });
+
   it('requests the uncensored workers in the submit body', async () => {
     responder = async (url, options) => {
       if (url.includes('/status/models')) {

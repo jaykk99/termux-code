@@ -120,6 +120,13 @@ describe('parseTextToolCalls', () => {
     assert.equal(r.text, src);
   });
 
+  it('reports a real tool object hidden in prose so the turn can ask for a block', () => {
+    const r = parseTextToolCalls('I will write it now: {"name": "write_file", "args": {"path": "a", "content": "b"}} hang on');
+    assert.equal(r.calls.length, 0);
+    assert.equal(r.errors.length, 1);
+    assert.match(r.errors[0], /write_file/);
+  });
+
   it('never runs bare objects that are followed by prose', () => {
     const src = '{"name": "bash", "args": {"command": "ls"}} that should list the folder';
     const r = parseTextToolCalls(src);
