@@ -18,8 +18,11 @@ permissions have been granted.
 4. For shared files/photos, run `termux-setup-storage` and grant shared-storage
    access if you want it. This does not remove Android app sandboxing.
 5. Run `termux-code`, then `/device` for a command availability report.
-   Ask the agent to use `device` for a particular action. An accessible
-   model/tool route is required. Horde workers may ignore the text protocol.
+   You can use direct commands such as `/device battery`, `/device location`,
+   `/device torch on`, `/device photo snapshot.jpg`, or `/device open https://example.com`
+   even if the model cannot issue a tool call. Sensitive commands still prompt
+   you for on-phone permission. For multi-step workflows, ask the agent to use
+   the `device` tool. Horde workers may ignore the text protocol.
 
 ## Exposed actions
 
