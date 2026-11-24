@@ -28,6 +28,7 @@ import { C, box, banner, toolHeader, toolResult, spinner, pick, wrap, width, ren
 import { isRefusalResponse } from '../lib/refusal.mjs';
 import { parseArgs, USAGE, approvalModeFor, deniedNote, pickModel, withPlanNote, withDeepNote, stepBudgetFor, subagentStepBudget } from '../lib/cli-args.mjs';
 import { connectAll, loadMcpConfig, parseQualified, runMcpTool, toolsForOpenAI as mcpToolsForOpenAI, toolsForAnthropic as mcpToolsForAnthropic } from '../lib/mcp.mjs';
+import { addMcpServer, removeMcpServer, formatServerList, parseHeaderArg, testMcpServer, reconnectMcpServers, validateServerName, validateServerUrl } from '../lib/mcp-manager.mjs';
 import { projectInstructions, applyProjectInstructions } from '../lib/project-context.mjs';
 import { browserDiagnostic } from '../lib/browser.mjs';
 import { connectGithubRepo, resolveLocalRepo } from '../lib/repo-connector.mjs';
@@ -689,6 +690,11 @@ export const HELP = [
   ['/undo [id]', 'restore the newest checkpoint (or a named one)'],
   ['/cwd', 'show the workspace root'],
   ['/repo <owner/repo|path>', 'connect to a GitHub or local repository workspace'],
+  ['/mcp', 'list configured MCP servers and their live status'],
+  ['/mcp add <name> <url> ["Header: value"]', 'save an MCP server and connect it now'],
+  ['/mcp test <name>', 'check one MCP server and list its tools'],
+  ['/mcp remove <name>', 'remove an MCP server from the saved config'],
+  ['/mcp reload', 'reconnect every configured MCP server'],
   ['/recon', 'check the ReconAnything scanner connection'],
   ['/recon start', 'launch an installed local ReconAnything scanner'],
   ['/recon url <url>', 'set the local/LAN ReconAnything backend URL'],
@@ -803,9 +809,24 @@ async function main(workspaceOverride = null) {
   // is named once and skipped rather than stopping the CLI.
   const mcpConfig = await loadMcpConfig(root, cfg.mcpServers).catch(() => ({}));
   const mcpServers = Object.keys(mcpConfig).length ? await connectAll(mcpConfig).catch(() => []) : [];
-  const mcpLive = mcpServers.filter((s) => s.ready);
-  const mcpToolsOAI = mcpToolsForOpenAI(mcpLive);
-  const mcpToolsAnthropic = mcpToolsForAnthropic(mcpLive);
+  // `let`, not `const`: /mcp add/remove/reload rebuilds these in place so
+  // the next turn — and the sub-agent runner, which holds the same array
+  // reference — sees the new servers without a restart.
+  let mcpLive = mcpServers.filter((s) => s.ready);
+  let mcpToolsOAI = mcpToolsForOpenAI(mcpLive);
+  let mcpToolsAnthropic = mcpToolsForAnthropic(mcpLive);
+  const rebuildMcpTools = () => {
+    mcpLive = mcpServers.filter((s) => s.ready);
+    mcpToolsOAI = mcpToolsForOpenAI(mcpLive);
+    mcpToolsAnthropic = mcpToolsForAnthropic(mcpLive);
+  };
+  /** Reconnect every configured server, replacing the live array in place. */
+  const refreshMcpLive = async (config) => {
+    const fresh = await reconnectMcpServers(config).catch(() => []);
+    mcpServers.splice(0, mcpServers.length, ...fresh);
+    rebuildMcpTools();
+    return fresh;
+  };
   if (mcpServers.length && !(args.json && oneShot)) {
     console.log(
       mcpLive.length
@@ -1714,6 +1735,104 @@ async function main(workspaceOverride = null) {
         return;
       } catch (err) {
         console.log(C.red('  Repository connection failed: ' + String(err?.message || err).slice(0,300) + '\n'));
+      }
+      continue;
+    }
+
+    if (input === '/mcp' || input.startsWith('/mcp ')) {
+      const usage = '  Usage: /mcp · /mcp add <name> <url> ["Header: value"] · /mcp test <name> · /mcp remove <name> · /mcp reload\n';
+      const [sub, ...mcpArgs] = input.slice(4).trim().split(/\s+/).filter(Boolean);
+      try {
+        if (!sub || sub === 'list') {
+          const live = mcpServers.length
+            ? '  live: ' + mcpServers.map((s) => (s.ready ? `${s.name} (${s.tools.length} tools)` : `${s.name}: ${s.error}`)).join(', ')
+            : '  live: none connected';
+          console.log(formatServerList(cfg.mcpServers || {}).join('\n') + '\n' + C.dim(live) + '\n');
+        } else if (sub === 'add') {
+          const [name, url, ...headerParts] = mcpArgs;
+          if (!name || !url) {
+            console.log(C.dim(usage));
+          } else {
+            let headers = {};
+            // Name and URL first, so a bad URL is reported as a bad URL
+            // instead of the trailing header arg failing first.
+            validateServerName(name);
+            validateServerUrl(url);
+            if (headerParts.length) {
+              const parsed = parseHeaderArg(headerParts.join(' '));
+              headers = { [parsed.name]: parsed.value };
+            }
+            cfg.mcpServers = addMcpServer(cfg.mcpServers || {}, name, url, headers);
+            await saveConfig(cfg);
+            // Connect it live now so the model can use it this session. A
+            // failure leaves the saved entry in place and says so — the
+            // server can be retried with /mcp test once it is reachable.
+            // A same-named project .mcp.json entry is replaced in the live
+            // list: the saved config wins over the project file, as at boot.
+            const connected = await connectAll({ [name]: cfg.mcpServers[name] }).catch(() => []);
+            const at = mcpServers.findIndex((s) => s.name === name);
+            if (at >= 0) mcpServers.splice(at, 1);
+            if (connected.length) mcpServers.push(...connected);
+            rebuildMcpTools();
+            const live = connected[0];
+            console.log(
+              live?.ready
+                ? C.dim(`  MCP server "${name}" saved and connected (${live.tools.length} tools).\n`)
+                : C.dim(`  MCP server "${name}" saved but not connected: ${live?.error || 'unknown error'}. /mcp test ${name} retries it.\n`)
+            );
+          }
+        } else if (sub === 'test') {
+          const [name] = mcpArgs;
+          if (!name) {
+            console.log(C.dim(usage));
+          } else {
+            const config = await loadMcpConfig(root, cfg.mcpServers).catch(() => ({}));
+            const entry = config[name];
+            if (!entry) {
+              console.log(C.dim(`  No MCP server named "${name}" is configured.\n`));
+            } else {
+              const result = await testMcpServer(name, entry);
+              console.log(
+                result.ready
+                  ? C.dim(`  ${name} is up: ${result.tools.length} tool(s): ${result.tools.join(', ') || 'none listed'}.\n`)
+                  : C.red(`  ${name} is not reachable: ${result.error}\n`)
+              );
+            }
+          }
+        } else if (sub === 'remove') {
+          const [name] = mcpArgs;
+          if (!name) {
+            console.log(C.dim(usage));
+          } else {
+            const { servers, removed } = removeMcpServer(cfg.mcpServers || {}, name);
+            if (!removed) {
+              console.log(C.dim(`  No MCP server named "${name}" is configured.\n`));
+            } else {
+              cfg.mcpServers = servers;
+              await saveConfig(cfg);
+              const at = mcpServers.findIndex((s) => s.name === name);
+              if (at >= 0) mcpServers.splice(at, 1);
+              rebuildMcpTools();
+              const projectConfig = await loadMcpConfig(root, {}).catch(() => ({}));
+              console.log(
+                C.dim(`  MCP server "${name}" removed from the saved config.\n`) +
+                  (projectConfig[name] ? C.dim(`  Note: ${name} is still in this project's .mcp.json, so it comes back on /mcp reload.\n`) : '')
+              );
+            }
+          }
+        } else if (sub === 'reload') {
+          const config = await loadMcpConfig(root, cfg.mcpServers).catch(() => ({}));
+          await refreshMcpLive(config);
+          console.log(
+            mcpLive.length
+              ? C.dim(`  [mcp] ${mcpLive.map((s) => `${s.name} (${s.tools.length} tools)`).join(', ')}\n`)
+              : C.red(`  [mcp] no server connected: ${mcpServers.map((s) => `${s.name}: ${s.error}`).join('; ') || 'none configured'}\n`)
+          );
+        } else {
+          console.log(C.dim(usage));
+        }
+      } catch (err) {
+        console.log(C.red('  ' + String(err?.message || err).slice(0, 300) + '\n'));
       }
       continue;
     }

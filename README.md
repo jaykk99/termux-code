@@ -178,7 +178,12 @@ Termux command page. The chat itself lives in Termux on the phone.
   as `mcp__<server>__<tool>`, every call is approval-gated (a remote server is
   code this CLI cannot inspect), and a server that is down is named once and
   skipped instead of blocking the session. The small-model prompt lists at most
-  eight MCP tools, with the rest as a count.
+  eight MCP tools, with the rest as a count. Manage them live with `/mcp`:
+  `/mcp add <name> <url> ["Header: value"]` saves a server and connects it
+  in the running session, `/mcp test <name>` checks one and lists its tools,
+  `/mcp remove <name>` drops it from the saved config, `/mcp reload`
+  reconnects everything. Auth headers are stored in config.json (mode 0600)
+  and never printed back.
 - **Sub-agents and project checks.** `task` spawns a sub-agent with a fresh
   context and its own step budget (research, read a repo, draft code) and
   returns only its report, so a side quest does not fill the main

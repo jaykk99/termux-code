@@ -19,7 +19,7 @@ This is an engineering plan, **not** a list of completed features. The next mile
 | 12 | Long-running job checkpoints | Termux process restarts and rehydrates task state |
 | 13 | Graphical computer use | UI interactions require supported runtime plus authorization |
 | 14 | Reusable skills catalog | A verified workflow can be saved, rerun, and versioned |
-| 15 | MCP server manager | Add/test/list/remove remote MCP servers, with auth kept secret |
+| 15 | MCP server manager | Add/test/list/remove remote MCP servers, with auth kept secret — done Nov 24, 2026 (`/mcp`, lib/mcp-manager.mjs) |
 | 16 | Parallel isolated worktrees | Independent tasks cannot overwrite each other's files |
 | 17 | Continuous verification | The CI/test log is attached to exact commit SHA |
 | 18 | Strategy optimization | Records validated wins/failures without fabricating learning |
@@ -31,6 +31,7 @@ This is an engineering plan, **not** a list of completed features. The next mile
 - Repository-wide delivery instructions to discourage a single-script answer when the task needs a full app.
 - `/repo owner/name` and `/repo /local/path`: clone/open repository and switch active workspace.
 - `/browser`: diagnostic of available phone browser/gateway capabilities; existing browser tool remains.
+- `/mcp` server manager: add/test/list/remove/reload remote MCP servers from the REPL, saved to `mcpServers` in the CLI config with auth headers never printed back; the live session reconnects in place (lib/mcp-manager.mjs).
 - `phone` tool: Termux:API capability check, carrier-reported phone number, SMS command and Android email draft opener.
 - Regression tests for the above foundations.
 

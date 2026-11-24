@@ -23,7 +23,10 @@ Termux Code is an AI coding agent that runs local file, Git, shell and verificat
 - Deliver multi-file applications in a coordinated manner based on explicit acceptance criteria.
 - Recover prior project decisions, requirements and unresolved work when resuming a project.
 - Add a durable per-project task ledger, dependency-aware planning, and checkpoint/resume mechanisms after the context foundation is verified.
-- Extend CLI with interactive /connect and /mcp management, secure secrets, and live connection refresh.
+- Extend CLI with interactive /connect and live connection refresh.
+- MCP server manager is done: /mcp add/test/list/remove/reload in the REPL
+  (lib/mcp-manager.mjs, persisted in config.json mcpServers, auth headers
+  never printed back), with the live session reconnected in place.
 - Improve MCP provider compatibility, task-state recovery and isolated Git worktrees.
 - Measure success via repeatable integration tests and actual verified Git commits.
 
