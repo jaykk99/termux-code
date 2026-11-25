@@ -396,6 +396,33 @@ describe('live model-list fetchers (mocked fetch)', () => {
       assert.ok(seen[0].url.endsWith('/api/models'));
     });
 
+    it('does not let an aligned hf row inherit the curated-pool trust', async () => {
+      // Live 2026-11-25: error-inbox's pool carries aligned HF repos, and
+      // isUncensoredModel() accepts ANY `hf` id because that provider is our
+      // curated pool. The row was listed, and resolveModel() would run it on
+      // the gateway. A live hf row must carry its own uncensored marker.
+      responder = () => jsonRes({
+        ok: true,
+        prefs: { pinned: null, disabled: [] },
+        models: [
+          { key: 'hf/meta-llama/Llama-3.1-8B-Instruct', provider: 'hf', model: 'meta-llama/Llama-3.1-8B-Instruct', ok: 9, fail: 0, disabled: false },
+          { key: 'hf/DavidAU/Qwen3-Heretic-Uncensored-GGUF', provider: 'hf', model: 'DavidAU/Qwen3-Heretic-Uncensored-GGUF', ok: 4, fail: 1, disabled: false },
+        ],
+      });
+      const { models } = await fetchErrorInboxModels();
+      assert.deepEqual(models.map((m) => m.id), ['hf/DavidAU/Qwen3-Heretic-Uncensored-GGUF']);
+    });
+
+    it('refuses an aligned hf model on the gateway even when the request claims error-inbox', async () => {
+      const aligned = { id: 'meta-llama/Llama-3.1-8B-Instruct', provider: 'hf', source: 'error-inbox' };
+      assert.equal(await resolveModel(aligned, EMPTY_ENV), null);
+      assert.equal(await resolveModel({ ...aligned, id: 'hf/meta-llama/Llama-3.1-8B-Instruct' }, EMPTY_ENV), null);
+      const curated = { id: 'hf/DavidAU/Qwen3-Heretic-Uncensored-GGUF', provider: 'hf', source: 'error-inbox' };
+      const model = await resolveModel(curated, EMPTY_ENV);
+      assert.equal(model?.provider, 'hf');
+      assert.equal(model?.auth, 'hf');
+    });
+
     it('yields nothing when the payload is not ok or the fetch fails', async () => {
       responder = () => jsonRes({ ok: false, models: [] });
       assert.deepEqual(await fetchErrorInboxModels(), { models: [], prefs: null });
