@@ -111,6 +111,24 @@ describe('ReconAnything routing', () => {
     assert.equal(calls[1].url, 'http://127.0.0.1:8000/api/runs/uuid-123');
   });
 
+  it('rejects invalid actions and missing targets without network requests', async () => {
+    let count = 0;
+    const ctx = { recon, fetch: async () => { count++; throw new Error('unexpected request'); } };
+    assert.match(await runReconTool({ action: 'subdomain_enumeration' }, ctx), /Do not retry an unsupported action/);
+    assert.match(await runReconTool({ action: 'start_scan' }, ctx), /exact authorized target/);
+    assert.match(await runReconTool({ action: 'start_scan', targets: 'example.com' }, ctx), /Do not retry until the user confirms/);
+    assert.equal(count, 0);
+  });
+
+  it('redacts backend response details and advises stopping failed attempts', async () => {
+    const result = await runReconTool({ action: 'health' }, {
+      recon, fetch: async () => new Response('private-access-code', { status: 401 }),
+    });
+    assert.match(result, /authentication or permission rejected/);
+    assert.match(result, /Stop scan attempts/);
+    assert.doesNotMatch(result, /private-access-code/);
+  });
+
   it('shows a useful backend error instead of inventing findings', async () => {
     const message = await runReconTool({ action: 'health' }, {
       recon, fetch: async () => { throw new Error('ECONNREFUSED'); },
