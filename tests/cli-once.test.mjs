@@ -9,7 +9,7 @@
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -81,11 +81,11 @@ async function sandbox(gatewayUrl) {
   return { home, project };
 }
 
-function runCli(args, { home, project }) {
+function runCli(args, { home, project }, extraEnv = {}) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [BIN, ...args], {
       cwd: project,
-      env: { ...process.env, HOME: home, TERMUX_CODE_NO_UPDATE: '1' },
+      env: { ...process.env, HOME: home, TERMUX_CODE_NO_UPDATE: '1', ...extraEnv },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -96,6 +96,30 @@ function runCli(args, { home, project }) {
     child.on('close', (code) => {
       clearTimeout(timer);
       resolve({ code, stdout, stderr });
+    });
+  });
+}
+
+function initRepo(dir) {
+  execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir });
+  execFileSync('git', ['config', 'user.name', 'Test'], { cwd: dir });
+}
+
+/** A minimal ReconAnything backend: enough for a health check. */
+function stubReconServer() {
+  const calls = [];
+  const server = http.createServer((req, res) => {
+    calls.push({ url: req.url, method: req.method, code: req.headers['x-access-code'] });
+    const body = req.url === '/api/health'
+      ? { ok: true, service: 'recon-anything', plugins: 1200 }
+      : {};
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(body));
+  });
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => {
+      resolve({ server, calls, url: `http://127.0.0.1:${server.address().port}` });
     });
   });
 }
@@ -194,6 +218,171 @@ describe('termux-code CLI without a REPL', () => {
     });
     assert.equal(out.code, 0, out.stderr);
     assert.match(out.stdout, /STUB ANSWER/);
+  });
+});
+
+describe('autopilot: one goal, a budget, then a commit', () => {
+  const writesAndFinishes = (marker) => [
+    {
+      text: 'Writing the marker file.',
+      toolCalls: [{ name: 'bash', args: { command: 'printf hi > autopilot.txt' } }],
+      assistantMessage: { role: 'assistant', content: 'Writing the marker file.' },
+    },
+    { text: `Wrote autopilot.txt.\n${marker}` },
+  ];
+
+  it('--for keeps working until the goal completes, then commits it', async () => {
+    const stub = await stubGateway(writesAndFinishes('TASK COMPLETE'));
+    const ctx = await sandbox(stub.url);
+    try {
+      initRepo(ctx.project);
+      const out = await runCli(['--for', '1m', '-p', 'create autopilot.txt', '--json'], ctx);
+      assert.equal(out.code, 0, out.stderr);
+      const payload = JSON.parse(out.stdout.trim());
+      assert.equal(payload.autopilot.reason, 'complete');
+      assert.equal(payload.autopilot.complete, true);
+      assert.equal(payload.autopilot.cycles, 1);
+      assert.equal(payload.commit.committed, true, `commit result: ${JSON.stringify(payload.commit)}`);
+
+      const subject = execFileSync('git', ['log', '-1', '--pretty=%s'], {
+        cwd: ctx.project,
+        encoding: 'utf8',
+      }).trim();
+      assert.equal(subject, 'termux-code: create autopilot.txt');
+      assert.equal(await fs.readFile(path.join(ctx.project, 'autopilot.txt'), 'utf8'), 'hi');
+      const status = execFileSync('git', ['status', '--porcelain'], { cwd: ctx.project, encoding: 'utf8' });
+      assert.equal(status.trim(), '', 'the commit must leave a clean tree');
+    } finally {
+      await new Promise((r) => stub.server.close(r));
+    }
+  });
+
+  it('--no-commit finishes the work but leaves it for review', async () => {
+    const stub = await stubGateway(writesAndFinishes('TASK COMPLETE'));
+    const ctx = await sandbox(stub.url);
+    try {
+      initRepo(ctx.project);
+      const out = await runCli(['--for', '1m', '--no-commit', '-p', 'create autopilot.txt'], ctx);
+      assert.equal(out.code, 0, out.stderr);
+      assert.match(out.stdout, /goal complete/);
+      assert.doesNotMatch(out.stdout, /committed [0-9a-f]/);
+      assert.throws(() => execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ctx.project, stdio: 'ignore' }));
+      const status = execFileSync('git', ['status', '--porcelain'], { cwd: ctx.project, encoding: 'utf8' });
+      assert.match(status, /autopilot\.txt/);
+    } finally {
+      await new Promise((r) => stub.server.close(r));
+    }
+  });
+
+  it('--autopilot without an objective fails with exit 2 and starts nothing', async () => {
+    const ctx = await sandbox(null);
+    const out = await runCli(['--autopilot'], ctx);
+    assert.equal(out.code, 2);
+    assert.match(out.stderr, /need an objective/);
+  });
+});
+
+describe('ReconAnything through the real agent loop', () => {
+  it('executes a recon_anything call and returns the backend result', async () => {
+    const recon = await stubReconServer();
+    const stub = await stubGateway([
+      {
+        text: 'Checking ReconAnything.',
+        toolCalls: [{ name: 'recon_anything', args: { action: 'health' } }],
+        assistantMessage: { role: 'assistant', content: 'Checking ReconAnything.' },
+      },
+      FINAL,
+    ]);
+    const ctx = await sandbox(stub.url);
+    try {
+      const out = await runCli(['-p', 'check reconanything health'], ctx, {
+        RECON_API_URL: recon.url,
+        RECON_ACCESS_CODE: 'local-test-code',
+      });
+      assert.equal(out.code, 0, out.stderr);
+      assert.match(out.stdout, /"connected": true/);
+      assert.equal(recon.calls.length, 1, 'the tool must reach the configured backend');
+      assert.equal(recon.calls[0].url, '/api/health');
+      assert.equal(recon.calls[0].code, 'local-test-code');
+
+      // The agent must be told the tool exists even when the request wording
+      // is not one of the old narrow intent phrases.
+      const system = stub.seen[0].messages.find((m) => m.role === 'system');
+      assert.match(String(system.content), /recon_anything tool/);
+    } finally {
+      await new Promise((r) => stub.server.close(r));
+      await new Promise((r) => recon.server.close(r));
+    }
+  });
+});
+
+describe('security tasks look for the target instead of asking for files', () => {
+  it('re-asks a security refusal instead of printing it as the answer', async () => {
+    const recon = await stubReconServer();
+    const refusal =
+      "I cannot attempt to exploit Claude or perform any hacking activities. As an AI assistant, " +
+      "I don't have direct access to Claude's systems or APIs. I operate within Termux, and my " +
+      'capabilities are limited to file operations and bash commands.';
+    const stub = await stubGateway([
+      { text: refusal },
+      {
+        text: 'Checking the target.',
+        toolCalls: [{ name: 'recon_anything', args: { action: 'health' } }],
+        assistantMessage: { role: 'assistant', content: 'Checking the target.' },
+      },
+      FINAL,
+    ]);
+    const ctx = await sandbox(stub.url);
+    try {
+      const out = await runCli(['-p', 'do bug bounty on crypto.com billing'], ctx, {
+        RECON_API_URL: recon.url,
+        RECON_ACCESS_CODE: 'local-test-code',
+      });
+      assert.equal(out.code, 0, out.stderr);
+      assert.doesNotMatch(out.stdout, /I cannot attempt/);
+      assert.match(out.stdout, /STUB ANSWER/);
+      assert.equal(recon.calls.length, 1, 'the tool must run after the refusal');
+      assert.equal(recon.calls[0].url, '/api/health');
+      const nudge = stub.seen[1].messages.at(-1);
+      assert.equal(nudge.role, 'user');
+      assert.match(nudge.content, /\[policy\]/);
+      assert.match(nudge.content, /recon_anything/);
+    } finally {
+      await new Promise((r) => stub.server.close(r));
+      await new Promise((r) => recon.server.close(r));
+    }
+  });
+
+  it('nudges a "where are the files?" reply into a real recon call', async () => {
+    const recon = await stubReconServer();
+    const stub = await stubGateway([
+      { text: 'Which files should I look at for crypto.com billing?' },
+      {
+        text: 'Checking the target.',
+        toolCalls: [{ name: 'recon_anything', args: { action: 'health' } }],
+        assistantMessage: { role: 'assistant', content: 'Checking the target.' },
+      },
+      FINAL,
+    ]);
+    const ctx = await sandbox(stub.url);
+    try {
+      const out = await runCli(['-p', 'do bug bounty on crypto.com billing'], ctx, {
+        RECON_API_URL: recon.url,
+        RECON_ACCESS_CODE: 'local-test-code',
+      });
+      assert.equal(out.code, 0, out.stderr);
+      assert.equal(recon.calls.length, 1, 'the target must be inspected without a second user turn');
+      assert.equal(recon.calls[0].url, '/api/health');
+      assert.match(out.stdout, /STUB ANSWER/);
+
+      const nudge = stub.seen[1].messages.at(-1);
+      assert.equal(nudge.role, 'user');
+      assert.match(nudge.content, /remote site, not a local project/);
+      assert.match(nudge.content, /crypto\.com/);
+    } finally {
+      await new Promise((r) => stub.server.close(r));
+      await new Promise((r) => recon.server.close(r));
+    }
   });
 });
 

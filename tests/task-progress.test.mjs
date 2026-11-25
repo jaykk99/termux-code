@@ -2,6 +2,33 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTaskProgress, observeTaskTool, continuationInstruction, requestContinuation } from '../lib/task-progress.mjs';
 
+test('a named security target is inspected, not handed back as a file question', () => {
+  const state = createTaskProgress('do bug bounty on crypto.com billing');
+  assert.equal(state.recon, true);
+  assert.equal(state.reconTarget, 'crypto.com');
+  const note = continuationInstruction(state);
+  assert.match(note, /crypto\.com/);
+  assert.match(note, /remote site, not a local project/);
+  assert.match(note, /Do not ask the user where the files are/);
+  observeTaskTool(state, 'recon_anything', { action: 'health' }, '{"connected":true}');
+  assert.equal(continuationInstruction(state), null);
+});
+
+test('security talk without a target does not force a scan', () => {
+  assert.equal(createTaskProgress('what is OSINT?').recon, false);
+  assert.equal(createTaskProgress('explain bug bounties').recon, false);
+  assert.equal(createTaskProgress('scan the codebase for TODOs').recon, false);
+  assert.equal(createTaskProgress("what's the bug bounty at crypto.com?").recon, false);
+});
+
+for (const prompt of ['scan example.com', 'run a scan on 10.0.0.5', 'recon localhost:3000']) {
+  test('security action with a host is a recon task: ' + prompt, () => {
+    const state = createTaskProgress(prompt);
+    assert.equal(state.recon, true, prompt);
+    assert.match(continuationInstruction(state), /recon_anything/);
+  });
+}
+
 test('plain questions finish without forced file edits', () => {
   const state = createTaskProgress('What is a JavaScript promise?');
   assert.equal(continuationInstruction(state), null);

@@ -34,6 +34,8 @@ import { browserDiagnostic } from '../lib/browser.mjs';
 import { connectGithubRepo, resolveLocalRepo } from '../lib/repo-connector.mjs';
 import { createTaskProgress, observeTaskTool, requestContinuation } from '../lib/task-progress.mjs';
 import { effortConfig, effortInstruction, EFFORT_MODES } from '../lib/effort.mjs';
+import { AUTOPILOT_DEFAULT_MS, autopilotContinuation, commitMessageFor, detectAutopilotRequest, formatDuration, parseDuration, runAutopilotLoop, withAutopilotNote } from '../lib/autopilot.mjs';
+import { commitWorkspace } from '../lib/autocommit.mjs';
 import { REASONING_MODES, reasoningPolicy, withReasoningNote } from '../lib/reasoning.mjs';
 import { memoryNote, withMemory } from '../lib/frontier.mjs';
 import { discoverReconSettings, runReconTool, validateReconUrl, withReconHint } from '../lib/recon.mjs';
@@ -675,6 +677,7 @@ export const HELP = [
   ['/reasoning [adaptive|fast|balanced|deep]', 'choose execution effort (adaptive by default)'],
   ['/effort <mode>', 'alias for /reasoning: auto, fast, balanced, or deep'],
   ['/deep', 'toggle deep work: acceptance criteria, todo ledger, more steps, auto-continue'],
+  ['/loop <time> <goal>', 'autopilot: work toward a goal for up to <time>, then commit'],
   ['/model-info', 'show selected model provenance and verification limits'],
   ['/keys', 'show which provider keys are set'],
   ['/key NAME value', 'save a provider key (VENICE_API_KEY, OPENROUTER_API_KEY, …)'],
@@ -782,6 +785,12 @@ async function main(workspaceOverride = null) {
     }
   }
   const oneShot = Boolean(prompt);
+  if (args.autopilot && !oneShot) {
+    console.error(C.red('termux-code: --autopilot and --for need an objective.'));
+    console.error(C.dim('  termux-code --for 45m "fix the failing tests"'));
+    process.exitCode = 2;
+    return;
+  }
 
   const root = process.cwd();
   const cfg = await loadConfig();
@@ -1114,20 +1123,162 @@ async function main(workspaceOverride = null) {
     return report.trim().slice(0, 4000) || 'The sub-agent returned nothing.';
   };
 
+  /**
+   * Commit the workspace after a long run. Local only — never a push — and a
+   * --ask one-shot (read-only by construction) declines it like any other
+   * write. Reports the real git result instead of claiming success.
+   */
+  const tryCommit = async (objective) => {
+    const message = commitMessageFor(objective);
+    if (approvalMode === 'deny') {
+      console.log(C.dim('\n  [commit] skipped: this --ask one-shot run is read-only.'));
+      return { committed: false, reason: 'read-only' };
+    }
+
+    console.log('\n' + toolHeader('commit', message));
+    const result = commitWorkspace(root, { message });
+    if (result.committed) {
+      console.log(toolResult(`committed ${result.sha || '(sha unavailable)'} · ${result.files.length} path(s)`, { ok: true }));
+      for (const line of result.files.slice(0, 8)) console.log(C.dim(`  ${line}`));
+      if (result.files.length > 8) console.log(C.dim(`  … +${result.files.length - 8} more`));
+    } else if (result.reason === 'clean') {
+      console.log(C.dim('  [commit] nothing to commit: the workspace is already clean.'));
+    } else if (result.reason === 'not-a-repo') {
+      console.log(C.dim('  [commit] skipped: not a git repository.'));
+    } else {
+      console.log(C.red(`  [commit] failed: ${oneLine(result.detail || 'git commit failed', 300)}`));
+    }
+    return result;
+  };
+
+  /**
+   * Autopilot: one objective, many turns, a wall-clock budget, and an explicit
+   * stop marker. Each cycle is one bounded turn (40 tool steps, no inner
+   * continuation windows), so the budget is checked at useful intervals and
+   * completed work is persisted between cycles. This is the outer loop
+   * OpenClaw-style long tasks need; turn() already owns the inner one.
+   */
+  const runAutopilot = async (objective, budgetMs) => {
+    if (messages[0]?.role === 'system') {
+      messages[0] = { ...messages[0], content: withAutopilotNote(messages[0].content, true) };
+    }
+    // Autopilot is deep work by definition. Pin it for the run, then restore
+    // the session setting so a REPL /loop does not turn every later chat deep.
+    const previousDeep = state.deep;
+    state.deep = true;
+    const reasoning = prepareReasoning(objective);
+    console.log(C.dim(`  [autopilot] goal: ${oneLine(objective, 160)}`));
+    console.log(C.dim(`  [autopilot] budget ${formatDuration(budgetMs)} · TASK COMPLETE or BLOCKED ends it early`));
+    try {
+      const result = await runAutopilotLoop({
+        budgetMs,
+        runCycle: async ({ cycle, remainingMs }) => {
+          if (cycle > 1) {
+            console.log(C.dim(`\n  [autopilot] cycle ${cycle} · ${formatDuration(remainingMs)} left`));
+            messages.push({ role: 'user', content: autopilotContinuation({ cycle, remainingMs }) });
+          }
+          const before = messages.length;
+          let cycleAnswer = null;
+          try {
+            cycleAnswer = await turn(model, messages, rl, root, () => completeFor(messages), {
+              gateway: cfg.gateway,
+              gatewayToken: cfg.gatewayToken,
+            }, {
+              verify: verifyState,
+              summarize,
+              verbose: state.verbose,
+              trace: state.trace,
+              think: state.think,
+              deep: true,
+              mcpServers,
+              reconSettings: currentRecon,
+              isReconActive: () => reconActive,
+              spawn: runSubagent,
+              checkpoint: persist,
+              reasoning,
+              autoContinue: false,
+            });
+          } catch (err) {
+            console.log(C.red(`  [autopilot] cycle ${cycle} failed: ${oneLine(err?.message || err, 240)}`));
+          }
+          await persist();
+          return {
+            answer: typeof cycleAnswer === 'string' ? cycleAnswer : null,
+            progressed: messages.length > before,
+          };
+        },
+      });
+      const labels = {
+        complete: 'goal complete',
+        budget: 'time budget reached — work is left undone',
+        blocked: `blocked: ${result.blocked}`,
+        stalled: 'stopped: the last cycle made no progress',
+        'cycle-limit': `stopped after ${result.cycles.length} cycles`,
+        error: `stopped on an error: ${oneLine(result.error?.message || result.error, 200)}`,
+      };
+      console.log(
+        C.dim(
+          `\n  [autopilot] ${labels[result.reason] || result.reason} · ${result.cycles.length} cycle(s) · ${formatDuration(
+            result.endedAt - result.startedAt
+          )}`
+        )
+      );
+      return { ...result, reasoning };
+    } finally {
+      state.deep = previousDeep;
+      // The goal note belongs to this run, not to the next user message in
+      // the same REPL session.
+      if (messages[0]?.role === 'system') {
+        messages[0] = { ...messages[0], content: withAutopilotNote(messages[0].content, false) };
+      }
+    }
+  };
+
+  /** Start an autopilot run from the REPL, then commit it when it ends. */
+  const startAutopilot = async (objective, budgetMs) => {
+    messages.push({ role: 'user', content: objective });
+    await persist();
+    const run = await runAutopilot(objective, budgetMs);
+    await persist();
+    if (!args.noCommit && typeof run.lastAnswer === 'string' && (run.complete || run.reason === 'budget')) {
+      await tryCommit(objective);
+    }
+    return run;
+  };
+
   // One prompt, no REPL. Exit 0 only when the turn actually produced an
   // answer, so `termux-code -p ...` is usable from a script.
   if (oneShot) {
-    const reasoning = prepareReasoning(prompt);
+    const realLog = console.log;
+    let answer = null;
+    let autopilot = null;
+    let commit = null;
+    let reasoning;
     messages.push({ role: 'user', content: prompt });
     await persist();
-    const realLog = console.log;
     if (args.json) console.log = (...a) => console.error(...a); // keep stdout clean
-    let answer = null;
     try {
-      answer = await turn(model, messages, rl, root, () => completeFor(messages), {
-        gateway: cfg.gateway,
-        gatewayToken: cfg.gatewayToken,
-      }, { verify: verifyState, summarize, verbose: args.verbose || state.verbose, trace: state.trace, think: state.think, deep: state.deep, mcpServers, reconSettings: currentRecon, isReconActive: () => reconActive, spawn: runSubagent, checkpoint: persist, reasoning });
+      if (args.autopilot) {
+        autopilot = await runAutopilot(prompt, args.forMs ?? AUTOPILOT_DEFAULT_MS);
+        reasoning = autopilot.reasoning;
+        answer = autopilot.lastAnswer;
+        // A run that used its whole budget still produced reviewable work;
+        // a blocked or stalled one did not reach a state worth committing.
+        if (
+          !args.noCommit &&
+          typeof answer === 'string' &&
+          (autopilot.complete || autopilot.reason === 'budget')
+        ) {
+          commit = await tryCommit(prompt);
+        }
+      } else {
+        reasoning = prepareReasoning(prompt);
+        answer = await turn(model, messages, rl, root, () => completeFor(messages), {
+          gateway: cfg.gateway,
+          gatewayToken: cfg.gatewayToken,
+        }, { verify: verifyState, summarize, verbose: args.verbose || state.verbose, trace: state.trace, think: state.think, deep: state.deep, mcpServers, reconSettings: currentRecon, isReconActive: () => reconActive, spawn: runSubagent, checkpoint: persist, reasoning });
+        if (args.commit && !args.noCommit && typeof answer === 'string') commit = await tryCommit(prompt);
+      }
     } finally {
       console.log = realLog;
     }
@@ -1144,6 +1295,24 @@ async function main(workspaceOverride = null) {
           steps: reasoning.maxSteps,
           reasoning: reasoning.effort,
           savedSession: session.meta.id || null,
+          autopilot: autopilot
+            ? {
+                reason: autopilot.reason,
+                complete: autopilot.complete,
+                blocked: autopilot.blocked,
+                cycles: autopilot.cycles.length,
+                budgetMs: autopilot.budgetMs,
+                elapsedMs: autopilot.endedAt - autopilot.startedAt,
+              }
+            : null,
+          commit: commit
+            ? {
+                committed: Boolean(commit.committed),
+                sha: commit.sha || null,
+                reason: commit.reason || null,
+                files: Array.isArray(commit.files) ? commit.files.length : 0,
+              }
+            : null,
         })
       );
     }
@@ -1837,6 +2006,20 @@ async function main(workspaceOverride = null) {
       continue;
     }
 
+    if (input === '/loop' || input.startsWith('/loop ')) {
+      const rest = input.slice('/loop'.length).trim();
+      const [duration, ...words] = rest.split(/\s+/).filter(Boolean);
+      const budgetMs = parseDuration(duration);
+      const objective = words.join(' ').trim();
+      if (!budgetMs || !objective) {
+        console.log(C.dim('  Usage: /loop <time> <objective>   e.g. /loop 45m fix the failing tests\n'));
+        continue;
+      }
+      const run = await startAutopilot(objective, budgetMs);
+      console.log('');
+      continue;
+    }
+
     if (input === '/cwd') {
       console.log(C.dim('  ' + root) + '\n');
       continue;
@@ -1857,6 +2040,16 @@ async function main(workspaceOverride = null) {
       messages.push({ role: 'assistant', content: reply });
       console.log('\n' + wrap(reply, width() - 2).join('\n'));
       await persist();
+      console.log('');
+      continue;
+    }
+
+    // "work on the parser for 30 minutes" is the same request as --for, in
+    // the words people actually use. Narrow detector, not a general NL parser.
+    const autoRequest = detectAutopilotRequest(input);
+    if (autoRequest) {
+      console.log(C.dim(`  [autopilot] ${formatDuration(autoRequest.budgetMs)} requested · commits when it ends`));
+      await startAutopilot(input, autoRequest.budgetMs);
       console.log('');
       continue;
     }

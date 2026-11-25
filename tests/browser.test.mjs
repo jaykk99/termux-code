@@ -113,11 +113,35 @@ test('selectors are embedded as JSON, never raw string concat', () => {
 
 const noChromiumDeps = { whichFn: async () => null };
 
-test('no Chromium and no gateway: read reports the install line, no approval asked', async () => {
+test('no Chromium and no gateway: read still returns the page text, no approval asked', async () => {
   const { ctx, calls } = ctxSpy();
-  const out = await runBrowser({ action: 'read', url: 'https://example.com' }, ctx, noChromiumDeps);
+  const out = await runBrowser({ action: 'read', url: 'https://example.com' }, ctx, {
+    ...noChromiumDeps,
+    fetchFn: async () =>
+      new Response('<html><body><h1>Claude</h1><p>Talk to Claude</p></body></html>', {
+        headers: { 'content-type': 'text/html' },
+      }),
+  });
+  assert.match(out, /Talk to Claude/);
   assert.ok(out.includes('pkg install chromium'), out);
   assert.equal(calls.length, 0, 'read actions must never prompt');
+});
+
+test('no Chromium, gateway down: read falls back to a direct text fetch instead of the install line', async () => {
+  const { ctx } = ctxSpy({ gateway: 'https://gw.example/' });
+  const out = await runBrowser({ action: 'read', url: 'https://example.com' }, ctx, {
+    ...noChromiumDeps,
+    fetchFn: async (url) => {
+      if (String(url).includes('/api/browser/read')) {
+        return { ok: false, status: 502, json: async () => ({ error: 'gateway down' }) };
+      }
+      return new Response('<html><body><p>Direct read worked</p></body></html>', {
+        headers: { 'content-type': 'text/html' },
+      });
+    },
+  });
+  assert.match(out, /Direct read worked/);
+  assert.match(out, /text-only read/);
 });
 
 test('no Chromium: click reports the install line (after approval), screenshot too', async () => {

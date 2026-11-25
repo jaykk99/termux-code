@@ -28,6 +28,10 @@ describe('parseArgs()', () => {
         reasoning: null,
         deep: false,
         maxSteps: null,
+        autopilot: false,
+        forMs: null,
+        commit: false,
+        noCommit: false,
         error: undefined,
       }
     );
@@ -95,6 +99,19 @@ describe('parseArgs()', () => {
     assert.equal(subagentStepBudget({ parent: 20, deep: true }), 20);
   });
 
+  it('reads autopilot, its time budget and the commit switches', () => {
+    assert.equal(parseArgs(['--autopilot']).autopilot, true);
+    assert.equal(parseArgs([]).autopilot, false);
+    const timed = parseArgs(['--for', '45m', '-p', 'refactor it']);
+    assert.equal(timed.forMs, 2_700_000);
+    assert.equal(timed.autopilot, true, '--for implies the autonomous loop');
+    assert.equal(parseArgs(['--for=1h30m']).forMs, 5_400_000);
+    assert.match(parseArgs(['--for', 'soon']).error, /needs a duration/);
+    assert.match(parseArgs(['--for']).error, /needs a value/);
+    assert.equal(parseArgs(['--commit']).commit, true);
+    assert.equal(parseArgs(['--no-commit']).noCommit, true);
+  });
+
   it('reads the informational flags', () => {
     assert.equal(parseArgs(['--help']).help, true);
     assert.equal(parseArgs(['-h']).help, true);
@@ -144,7 +161,7 @@ describe('parseArgs()', () => {
   });
 
   it('documents every flag it accepts in the usage text', () => {
-    for (const flag of ['--print', '--yes', '--model', '--cwd', '--max-steps', '--session', '--json', '--think', '--deep', '--help', '--version']) {
+    for (const flag of ['--print', '--yes', '--model', '--cwd', '--max-steps', '--session', '--json', '--think', '--deep', '--autopilot', '--for', '--commit', '--no-commit', '--help', '--version']) {
       assert.ok(USAGE.includes(flag), `${flag} missing from the usage text`);
     }
   });

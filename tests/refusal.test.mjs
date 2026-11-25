@@ -69,6 +69,13 @@ describe('isRefusalResponse() — catches real refusals', () => {
     "I'm just a coding assistant, so I can't help with that request.",
     'I can only help with coding and programming questions.',
     "I'm unable to help with anything outside of software development.",
+    // Security-work refusals (2026-11-25): the exact reply the owner got when
+    // asking for bug-bounty work — a hacking refusal, a no-access claim and a
+    // capability menu — which slid past every pattern above and was printed
+    // as the answer instead of walking the chain.
+    "I cannot attempt to exploit Claude or perform any hacking activities. As an AI assistant, I don't have direct access to Claude's systems or APIs.",
+    "I can't do that. I operate within Termux on your Android device, and my capabilities are limited to file operations and bash commands.",
+    "I won't perform any hacking activities for you.",
   ];
   for (const text of refusals) {
     it(`flags: ${text.slice(0, 48)}…`, () => {
@@ -125,6 +132,13 @@ describe('isRefusalResponse() — leaves real answers alone', () => {
     // Scope-shaped answers that are still HELPING, not refusing.
     "I'm a coding assistant, but here's the fix: the parser needs a null guard.",
     'I can only help with the parser today; the renderer is in another file — here is the diff.',
+    // Near-misses for the security-work and capability-menu patterns: scoped
+    // statements about what one step needs, not refusals of the request.
+    "I can't attempt a fix until I see the failing test; here is how to get the log.",
+    "I won't perform the migration tonight; the schema half is done and committed.",
+    'My capabilities are limited to what the API exposes, so page through the results with the cursor below.',
+    "The scanner's capabilities are limited to passive checks; enable active mode for the rest.",
+    'As an AI assistant I can run the scan for you — starting with health.',
   ];
   for (const text of answers) {
     it(`passes: ${text.slice(0, 48)}…`, () => {

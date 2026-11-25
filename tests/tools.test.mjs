@@ -107,6 +107,49 @@ describe('web tools', () => {
     }
     assert.match(await runTool('fetch_url', { url: 'file:///etc/passwd' }, ctx()), /Only http and https/);
   });
+
+  it('fetch_url re-reads a JavaScript-only page through the text reader', async () => {
+    const real = globalThis.fetch;
+    const seen = [];
+    globalThis.fetch = async (url) => {
+      seen.push(String(url));
+      if (String(url).startsWith('https://r.jina.ai/')) {
+        return new Response('Title: Claude\n\nClaude is an AI assistant made by Anthropic.', {
+          headers: { 'content-type': 'text/plain' },
+        });
+      }
+      return new Response('<html><body><div id="root"></div><script>app()</script></body></html>', {
+        headers: { 'content-type': 'text/html' },
+      });
+    };
+    try {
+      const out = await runTool('fetch_url', { url: 'https://claude.ai' }, ctx());
+      assert.match(out, /read via text reader/);
+      assert.match(out, /made by Anthropic/);
+      assert.ok(seen.some((u) => u.startsWith('https://r.jina.ai/https://claude.ai')), seen.join(', '));
+    } finally {
+      globalThis.fetch = real;
+    }
+  });
+
+  it('fetch_url re-reads a bot-check page and says so when the reader also fails', async () => {
+    const real = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      if (String(url).startsWith('https://r.jina.ai/')) throw new Error('reader down');
+      return new Response('<html><body><h1>Just a moment...</h1><p>Checking your browser</p></body></html>', {
+        status: 403,
+        headers: { 'content-type': 'text/html' },
+      });
+    };
+    try {
+      const out = await runTool('fetch_url', { url: 'https://claude.ai' }, ctx());
+      assert.match(out, /HTTP 403/);
+      assert.match(out, /no readable text/);
+      assert.match(out, /pkg install chromium/);
+    } finally {
+      globalThis.fetch = real;
+    }
+  });
 });
 
 describe('grep tool', () => {

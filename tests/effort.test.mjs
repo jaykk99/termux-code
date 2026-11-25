@@ -28,7 +28,10 @@ test('fast has smaller failover and backoff budget, deep is more deliberate', ()
   assert.equal(fast.emptyRetry, true);
   assert.equal(effortConfig('balanced').emptyRetry, true);
   assert.equal(deep.emptyRetry, true);
-  assert.equal(fast.refusalRetry, false);
+  // Every mode re-asks a refusing route once: the refusal used to reach the
+  // owner as the answer in fast/balanced, which are the defaults.
+  assert.equal(fast.refusalRetry, true);
+  assert.equal(effortConfig('balanced').refusalRetry, true);
   assert.ok(fast.maxAttempts >= 4);
   assert.match(effortInstruction('deep'), /checks/);
   assert.match(effortInstruction('fast'), /promptly/);

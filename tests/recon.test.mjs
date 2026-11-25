@@ -16,12 +16,25 @@ describe('ReconAnything routing', () => {
   });
 
   it('detects security intents and keeps the prompt note idempotent', () => {
-    for (const intent of ['hack my website', 'pentest staging.example', 'OSINT on a domain', 'scan site example.com', 'bug bounty scan', 'vulnerability assessment']) {
+    for (const intent of [
+      'hack my website', 'pentest staging.example', 'OSINT on a domain',
+      'scan site example.com', 'bug bounty scan', 'vulnerability assessment',
+      // Phrasings that used to miss the hint, so the model answered that it
+      // could not scan even though recon_anything was in its tool list.
+      'scan example.com', 'scan my site example.com', 'run a scan on example.com',
+      'use reconanything on staging.example', 'use recon-anything to check this host',
+      'what did the last scan find?', 'show me the latest recon findings',
+    ]) {
       assert.equal(isReconIntent(intent), true, intent);
     }
     assert.equal(isReconIntent('build a todo app'), false);
+    assert.equal(isReconIntent('scan the codebase for TODOs'), false, 'a code search is not a recon scan');
     const first = withReconHint('system', 'pentest our app');
     assert.match(first, /recon_anything tool/);
+    // The hint must name the capability-list refusal, or a model answers
+    // "my capabilities are limited to…" instead of calling the tool.
+    assert.match(first, /Never answer a security request with a refusal/);
+    assert.match(first, /capability list/);
     assert.equal(withReconHint(first, 'pentest again'), first);
     assert.equal(withReconHint(first, 'build an app'), 'system');
   });
