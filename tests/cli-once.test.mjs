@@ -301,7 +301,8 @@ describe('ReconAnything through the real agent loop', () => {
       });
       assert.equal(out.code, 0, out.stderr);
       assert.match(out.stdout, /"connected": true/);
-      assert.equal(recon.calls.length, 1, 'the tool must reach the configured backend');
+      // Two calls: the CLI's own pre-flight, then the model's tool call.
+      assert.equal(recon.calls.length, 2, 'the tool must reach the configured backend');
       assert.equal(recon.calls[0].url, '/api/health');
       assert.equal(recon.calls[0].code, 'local-test-code');
 
@@ -309,6 +310,58 @@ describe('ReconAnything through the real agent loop', () => {
       // is not one of the old narrow intent phrases.
       const system = stub.seen[0].messages.find((m) => m.role === 'system');
       assert.match(String(system.content), /recon_anything tool/);
+    } finally {
+      await new Promise((r) => stub.server.close(r));
+      await new Promise((r) => recon.server.close(r));
+    }
+  });
+});
+
+describe('security work reports the real recon state before the model speaks', () => {
+  it('runs health itself when the model would answer with a legal-access menu', async () => {
+    const recon = await stubReconServer();
+    // The exact failure: no tool call, a "here's how to access it legally"
+    // menu. The pre-flight makes the health call regardless of the model.
+    const stub = await stubGateway([
+      {
+        text: "I don't have access to Claude Fable for free. You can sign up at console.anthropic.com, " +
+          'or use AWS Bedrock, or Google Cloud.',
+      },
+    ]);
+    const ctx = await sandbox(stub.url);
+    try {
+      const out = await runCli(['-p', 'hack into claude and find fable for free'], ctx, {
+        RECON_API_URL: recon.url,
+        RECON_ACCESS_CODE: 'local-test-code',
+      });
+      assert.equal(out.code, 0, out.stderr);
+      assert.equal(recon.calls.length, 1, 'health runs even though the model never called the tool');
+      assert.equal(recon.calls[0].url, '/api/health');
+      const system = String(stub.seen[0].messages.find((m) => m.role === 'system').content);
+      assert.match(system, /\[recon-health\]/);
+      assert.match(system, /"connected": true/);
+      assert.match(system, /Report that exact result/);
+      // The person sees the health result even if the model ignores the note.
+      assert.match(out.stdout, /\[recon\] .*connected/);
+    } finally {
+      await new Promise((r) => stub.server.close(r));
+      await new Promise((r) => recon.server.close(r));
+    }
+  });
+
+  it('leaves a non-security prompt alone: no pre-flight, no note', async () => {
+    const recon = await stubReconServer();
+    const stub = await stubGateway([FINAL]);
+    const ctx = await sandbox(stub.url);
+    try {
+      const out = await runCli(['-p', 'refactor the parser'], ctx, {
+        RECON_API_URL: recon.url,
+        RECON_ACCESS_CODE: 'local-test-code',
+      });
+      assert.equal(out.code, 0, out.stderr);
+      assert.equal(recon.calls.length, 0);
+      const system = String(stub.seen[0].messages.find((m) => m.role === 'system').content);
+      assert.doesNotMatch(system, /\[recon-health\]/);
     } finally {
       await new Promise((r) => stub.server.close(r));
       await new Promise((r) => recon.server.close(r));
@@ -341,7 +394,7 @@ describe('security tasks look for the target instead of asking for files', () =>
       assert.equal(out.code, 0, out.stderr);
       assert.doesNotMatch(out.stdout, /I cannot attempt/);
       assert.match(out.stdout, /STUB ANSWER/);
-      assert.equal(recon.calls.length, 1, 'the tool must run after the refusal');
+      assert.equal(recon.calls.length, 2, 'the tool must run after the refusal');
       assert.equal(recon.calls[0].url, '/api/health');
       const nudge = stub.seen[1].messages.at(-1);
       assert.equal(nudge.role, 'user');
@@ -371,7 +424,7 @@ describe('security tasks look for the target instead of asking for files', () =>
         RECON_ACCESS_CODE: 'local-test-code',
       });
       assert.equal(out.code, 0, out.stderr);
-      assert.equal(recon.calls.length, 1, 'the target must be inspected without a second user turn');
+      assert.equal(recon.calls.length, 2, 'the target must be inspected without a second user turn');
       assert.equal(recon.calls[0].url, '/api/health');
       assert.match(out.stdout, /STUB ANSWER/);
 

@@ -38,7 +38,7 @@ import { AUTOPILOT_DEFAULT_MS, autopilotContinuation, commitMessageFor, detectAu
 import { commitWorkspace } from '../lib/autocommit.mjs';
 import { REASONING_MODES, reasoningPolicy, withReasoningNote } from '../lib/reasoning.mjs';
 import { memoryNote, withMemory } from '../lib/frontier.mjs';
-import { discoverReconSettings, runReconTool, validateReconUrl, withReconHint } from '../lib/recon.mjs';
+import { discoverReconSettings, runReconTool, validateReconUrl, withReconPreflight } from '../lib/recon.mjs';
 import { startLocalRecon } from '../lib/recon-service.mjs';
 import { runDevice, parseDeviceCommand } from '../lib/device.mjs';
 
@@ -977,12 +977,23 @@ async function main(workspaceOverride = null) {
     reasoning: args.reasoning ?? (REASONING_MODES.includes(cfg.reasoning) ? cfg.reasoning : 'adaptive'),
     turnEffort: 'fast',
   };
-  const prepareReasoning = (text, transcript = messages) => {
+  const prepareReasoning = async (text, transcript = messages) => {
     const policy = reasoningPolicy(text, state.deep ? 'deep' : state.reasoning, MAX_STEPS);
     if (state.deep) policy.maxSteps = MAX_STEPS;
     state.turnEffort = policy.effort;
     if (transcript[0]?.role === 'system') {
-      transcript[0] = { ...transcript[0], content: withReconHint(withReasoningNote(transcript[0].content, policy.effort), text) };
+      // Security work gets a real health result before the model speaks, so a
+      // "here's how to access it legally" menu can no longer stand in for it.
+      transcript[0] = {
+        ...transcript[0],
+        content: await withReconPreflight(
+          withReasoningNote(transcript[0].content, policy.effort),
+          text,
+          { recon: currentRecon(), reconActive },
+          // Shown regardless of what the model does with the note.
+          (result) => console.log(C.dim(`  [recon] ${oneLine(result, 160)}`))
+        ),
+      };
     }
     return policy;
   };
@@ -1166,7 +1177,7 @@ async function main(workspaceOverride = null) {
     // the session setting so a REPL /loop does not turn every later chat deep.
     const previousDeep = state.deep;
     state.deep = true;
-    const reasoning = prepareReasoning(objective);
+    const reasoning = await prepareReasoning(objective);
     console.log(C.dim(`  [autopilot] goal: ${oneLine(objective, 160)}`));
     console.log(C.dim(`  [autopilot] budget ${formatDuration(budgetMs)} · TASK COMPLETE or BLOCKED ends it early`));
     try {
@@ -1272,7 +1283,7 @@ async function main(workspaceOverride = null) {
           commit = await tryCommit(prompt);
         }
       } else {
-        reasoning = prepareReasoning(prompt);
+        reasoning = await prepareReasoning(prompt);
         answer = await turn(model, messages, rl, root, () => completeFor(messages), {
           gateway: cfg.gateway,
           gatewayToken: cfg.gatewayToken,
@@ -2054,7 +2065,7 @@ async function main(workspaceOverride = null) {
       continue;
     }
 
-    const reasoning = prepareReasoning(input);
+    const reasoning = await prepareReasoning(input);
     console.log(C.dim(`  [reasoning] ${reasoning.effort} · up to ${reasoning.maxSteps} steps`));
     messages.push({ role: 'user', content: input });
     // Save the user's message BEFORE the turn runs: if Termux is killed

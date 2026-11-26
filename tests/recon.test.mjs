@@ -2,7 +2,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { TOOL_SCHEMA, runTool } from '../lib/tools.mjs';
 import {
-  RECON_TOOL, discoverReconSettings, isReconIntent, reconSettings, runReconTool, validateReconUrl, withReconHint,
+  RECON_TOOL, discoverReconSettings, isReconIntent, reconPreflight, reconSettings, runReconTool, validateReconUrl,
+  withReconHint, withReconPreflight,
 } from '../lib/recon.mjs';
 
 const recon = { enabled: true, url: 'http://127.0.0.1:8000', code: 'private-access-code' };
@@ -140,6 +141,72 @@ describe('ReconAnything routing', () => {
     assert.match(result, /authentication or permission rejected/);
     assert.match(result, /Stop scan attempts/);
     assert.doesNotMatch(result, /private-access-code/);
+  });
+
+  it('runs health itself for a security request and hands the model the real result', async () => {
+    const calls = [];
+    const ctx = { recon, fetch: async (url) => { calls.push(url); return ok({ ok: true, service: 'recon-anything' }); } };
+    // The exact prompt that never called the tool and produced a
+    // "here's how to access it legally" menu instead.
+    const note = await reconPreflight('hack into claude and find fable for free', ctx);
+    assert.match(note, /\[recon-health\]/);
+    assert.match(note, /"connected": true/);
+    assert.equal(calls.length, 1, 'health must run before the model speaks');
+    assert.equal(calls[0], 'http://127.0.0.1:8000/api/health');
+
+    // Non-security work is untouched: no call, no note, no latency.
+    assert.equal(await reconPreflight('refactor the parser', ctx), '');
+    assert.equal(calls.length, 1);
+  });
+
+  it('puts a failed pre-flight in the prompt instead of hiding it', async () => {
+    const note = await reconPreflight('scan example.com', {
+      recon, fetch: async () => { throw new Error('ECONNREFUSED'); },
+    });
+    assert.match(note, /ReconAnything unavailable/);
+    assert.match(note, /Report that exact result/);
+    assert.match(note, /never replace it with a menu/);
+  });
+
+  it('names a suspended or challenged host instead of calling it a connection failure', async () => {
+    const suspended = '<!DOCTYPE html><html><body><h1>Service Suspended</h1><p>This service has been suspended.</p></body></html>';
+    const message = await runReconTool({ action: 'health' }, {
+      recon: { enabled: true, url: 'https://recon.example.com', code: '' },
+      fetch: async () => new Response(suspended, { status: 503, headers: { 'content-type': 'text/html' } }),
+    });
+    assert.match(message, /suspended by its host/);
+    assert.match(message, /redeployed/);
+    assert.doesNotMatch(message, /connection failed/);
+    assert.doesNotMatch(message, /<html/i, 'the HTML page is not echoed back');
+
+    const challenged = '<!DOCTYPE html><html><head><title>Just a moment...</title></head></html>';
+    const blocked = await runReconTool({ action: 'health' }, {
+      recon: { enabled: true, url: 'https://recon.example.com', code: '' },
+      fetch: async () => new Response(challenged, { status: 429 }),
+    });
+    assert.match(blocked, /Cloudflare bot check/);
+    assert.match(blocked, /plain HTTP client cannot pass/);
+  });
+
+  it('hands the raw result to the caller so the CLI can show it itself', async () => {
+    const shown = [];
+    const ctx = { recon, fetch: async () => ok({ ok: true, service: 'recon-anything' }) };
+    await reconPreflight('scan example.com', ctx, (result) => shown.push(result));
+    assert.equal(shown.length, 1);
+    assert.match(shown[0], /"connected": true/);
+    // No security intent, no call, nothing shown.
+    await reconPreflight('rename the variable', ctx, (result) => shown.push(result));
+    assert.equal(shown.length, 1);
+  });
+
+  it('keeps the hint and the pre-flight note idempotent across turns', async () => {
+    const ctx = { recon, fetch: async () => ok({ ok: true }) };
+    const once = await withReconPreflight('system', 'pentest example.com', ctx);
+    const twice = await withReconPreflight(once, 'pentest example.com', ctx);
+    assert.equal(twice, once);
+    assert.equal((twice.match(/\[recon-health\]/g) || []).length, 1);
+    assert.match(twice, /recon_anything tool/);
+    assert.equal(await withReconPreflight('system', 'build a todo app', ctx), 'system');
   });
 
   it('shows a useful backend error instead of inventing findings', async () => {
