@@ -3,8 +3,8 @@
 import { useState } from 'react';
 
 /**
- * Gateway token manager. Minting replaces the previous token (one active
- * token per owner) and reveals the new plaintext exactly once, together
+ * Gateway token manager. Minting does not revoke previous signed tokens.
+ * It reveals the new plaintext once, together
  * with the full Termux install command that carries it.
  */
 export default function TokenPanel({ site, existing }) {
@@ -78,18 +78,17 @@ export default function TokenPanel({ site, existing }) {
     <div>
       {existing?.length > 0 && !token && !revoked && (
         <p className="note">
-          Active token: <code className="tokenline">{existing[0].prefix}…</code> (created{' '}
+          Stored legacy token: <code className="tokenline">{existing[0].prefix}…</code> (created{' '}
           {new Date(existing[0].createdAt).toLocaleString()}
           {existing[0].lastUsedAt
             ? `, last used ${new Date(existing[0].lastUsedAt).toLocaleString()}`
             : ', never used yet'}
-          ). Its full value can&rsquo;t be shown again — mint a new one to
-          replace it.
+          ). Its full value can&rsquo;t be shown again — mint a new one if needed; minting does not invalidate the old one.
         </p>
       )}
       {revoked && (
         <p className="note">
-          Token revoked. The phone CLI can no longer use the gateway until you mint a new one.
+          Stored legacy tokens were revoked. Signed tokens remain valid until expiry or signing-secret rotation.
         </p>
       )}
       <div className="btnrow">
@@ -98,10 +97,11 @@ export default function TokenPanel({ site, existing }) {
         </button>
         {existing?.length > 0 && (
           <button type="button" className="btn" onClick={revoke} disabled={busy}>
-            Revoke token
+            Revoke stored tokens
           </button>
         )}
       </div>
+      <p className="note">Signed gateway tokens are not individually revocable here. Minting a replacement does not invalidate previous signed tokens. Rotate the gateway signing secret to invalidate them.</p>
       {error && <p className="note">{error}</p>}
       {command && (
         <>
