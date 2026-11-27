@@ -135,6 +135,6 @@ describe('logRequest()', () => {
       console.error = origErr;
     }
     assert.match(lines[0], /GET \/api\/chat -> 200 12ms/);
-    assert.match(lines[1], /POST \/api\/chat -> 500 3ms extra/);
+    assert.match(lines[1], /POST \/api\/chat -> 500 3ms$/);
   });
 });

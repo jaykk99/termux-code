@@ -59,3 +59,25 @@ test('oversized body cancels stream and returns 413', async () => {
   await assert.rejects(readJSON(req, { maxBytes: 8 }), e => e.status === 413);
   assert.equal(cancelled, true);
 });
+
+test('local defensive audit flags insecure files, skips templates and never follows symlinks', async () => {
+  const { auditWorkspace } = await import('../lib/security-audit.mjs');
+  const { writeFile, chmod, symlink, mkdir } = await import('node:fs/promises');
+  const dir = await mkdtemp(path.join(tmpdir(), 'tc-workspace-'));
+  try {
+    const workspace = path.join(dir, 'workspace');
+    await mkdir(workspace);
+    await writeFile(path.join(workspace, '.env'), 'secret-marker');
+    await chmod(path.join(workspace, '.env'), 0o644);
+    await writeFile(path.join(workspace, '.env.example'), 'template');
+    await writeFile(path.join(workspace, 'package.json'), '{}');
+    await writeFile(path.join(dir, 'private.key'), 'outside-marker');
+    await symlink(dir, path.join(workspace, 'outside'));
+    const report = await auditWorkspace(workspace);
+    assert.ok(report.findings.some(f => f.rule === 'CREDENTIAL_FILE_PERMISSIONS' && f.path === '.env'));
+    assert.ok(report.findings.some(f => f.rule === 'MISSING_DEPENDENCY_LOCK'));
+    assert.ok(report.findings.some(f => f.rule === 'SYMLINK_REVIEW'));
+    assert.doesNotMatch(JSON.stringify(report), /secret-marker|outside-marker|private\.key|\.env\.example/);
+    assert.equal((await auditWorkspace(workspace, { maxEntries: 1 })).truncated, true);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
