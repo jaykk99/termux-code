@@ -111,3 +111,34 @@ test('audit counts every finding even when the detail list is capped', async () 
     assert.ok(report.findings.some(f=>f.severity==='high'));
   } finally {await rm(dir,{recursive:true,force:true});}
 });
+
+test('offline audit finishes a small tree and reports explicit budget exhaustion', async () => {
+  const { auditWorkspace } = await import('../lib/security-audit.mjs');
+  const { mkdir, writeFile } = await import('node:fs/promises');
+  const dir = await mkdtemp(path.join(tmpdir(), 'tc-adaptive-audit-'));
+  try {
+    await mkdir(path.join(dir,'nested'));
+    await writeFile(path.join(dir,'nested','test.txt'),'fixture');
+    const full = await auditWorkspace(dir);
+    assert.equal(full.complete,true);
+    assert.equal(full.stopReason,'complete');
+    assert.equal(full.inspected,2);
+    const limited = await auditWorkspace(dir,{maxEntries:1});
+    assert.equal(limited.complete,false);
+    assert.equal(limited.stopReason,'entry_limit');
+    assert.equal(limited.inspected,1);
+  } finally { await rm(dir,{recursive:true,force:true}); }
+});
+test('offline audit automatically covers a tree larger than the former 1500-entry cap', async () => {
+  const { auditWorkspace } = await import('../lib/security-audit.mjs');
+  const { writeFile } = await import('node:fs/promises');
+  const dir = await mkdtemp(path.join(tmpdir(), 'tc-large-audit-'));
+  try {
+    for (let i=0;i<1510;i+=50) {
+      await Promise.all(Array.from({length:Math.min(50,1510-i)},(_,j)=>writeFile(path.join(dir,'file-'+(i+j)),'')));
+    }
+    const full = await auditWorkspace(dir);
+    assert.equal(full.complete,true);
+    assert.equal(full.inspected,1510);
+  } finally { await rm(dir,{recursive:true,force:true}); }
+});
