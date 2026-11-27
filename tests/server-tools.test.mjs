@@ -192,7 +192,8 @@ describe('audit log', () => {
     await runServerTool('run_terminal', { command: 'echo audit-check' }, ctx());
     const log = await fs.readFile(ENV.AUDIT_LOG_PATH, 'utf8');
     const lines = log.trim().split('\n').map((l) => JSON.parse(l));
-    const hit = lines.find((l) => l.tool === 'run_terminal' && l.args.includes('audit-check'));
+    const hit = lines.find((l) => l.tool === 'run_terminal' && l.args === '[omitted]');
+    assert.ok(!log.includes('audit-check'), 'raw commands must not be logged');
     assert.ok(hit, 'expected an audit line for the terminal call');
     assert.equal(hit.login, 'jaykk99');
     assert.ok(!log.includes('test-github-token-value'), 'audit log must not contain the GitHub token');

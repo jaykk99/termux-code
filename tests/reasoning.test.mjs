@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { chooseEffort, reasoningPolicy, withReasoningNote } from '../lib/reasoning.mjs';
+import { chooseEffort, reasoningPolicy, withReasoningNote, isLocalDefensiveReview } from '../lib/reasoning.mjs';
 import { parseArgs } from '../lib/cli-args.mjs';
 
 describe('adaptive reasoning classification', () => {
@@ -63,5 +63,23 @@ describe('reasoning CLI flags', () => {
   it('rejects unsupported or missing modes', () => {
     assert.match(parseArgs(['--reasoning', 'instant']).error, /must be/);
     assert.match(parseArgs(['--reasoning']).error, /needs a value/);
+  });
+});
+
+describe('local defensive review effort', () => {
+  it('recognizes short local reviews that require real inspection', () => {
+    for (const prompt of ['check my repo for vulnerabilities', 'scan this workspace for secrets', 'review our dependencies for vulnerabilities']) {
+      assert.equal(isLocalDefensiveReview(prompt), true, prompt);
+      assert.equal(reasoningPolicy(prompt).maxSteps, 40);
+    }
+  });
+  it('does not treat remote access or exploitation as a local review', () => {
+    for (const prompt of ['check my repo for vulnerabilities at https://example.com', 'hack this project', 'pentest this project remotely', 'check the weather']) {
+      assert.equal(isLocalDefensiveReview(prompt), false, prompt);
+    }
+  });
+  it('honors explicit fast mode and caller ceilings', () => {
+    assert.equal(reasoningPolicy('check my repo for vulnerabilities', 'fast').maxSteps, 8);
+    assert.equal(reasoningPolicy('check my repo for vulnerabilities', 'adaptive', 5).maxSteps, 5);
   });
 });

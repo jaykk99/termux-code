@@ -417,7 +417,7 @@ export async function turn(model, messages, rl, root, completeFn, gateway = {}, 
   const windowSize = Math.min(asked, 40);
   const maxContinuations =
     agent.autoContinue === false ? 0 : policed ? Math.ceil(asked / windowSize) - 1 : 2;
-  const budget = windowSize * (maxContinuations + 1);
+  const budget = policed ? Math.min(asked, windowSize * (maxContinuations + 1)) : windowSize * (maxContinuations + 1);
   let spent = 0;
   for (let window = 0; window <= maxContinuations && spent < budget; window++) {
     let stillWorking = false;
@@ -663,14 +663,14 @@ export async function turn(model, messages, rl, root, completeFn, gateway = {}, 
     // Work was still in flight when the window ran out: keep going. Two
     // extensions is the ceiling, so a looping model still stops.
     if (stillWorking && window < maxContinuations) {
-      console.log(C.dim(`  [deep] ${budget * (window + 1)} tool steps used and the task is still open — continuing.`));
+      console.log(C.dim(`  [deep] ${spent} execution steps used and the task is still open — continuing.`));
       messages.push({ role: 'user', content: DEEP_CONTINUE });
       continue;
     }
     break;
   }
   metrics.stopReason = 'step_budget';
-  console.log('\n' + C.red(`Stopped after ${spent} tool steps. Say "continue" to resume.`));
+  console.log('\n' + C.red(`Stopped after ${spent} tool steps (budget: ${budget}). Task may be incomplete; inspect the last results.`));
   return null;
 }
 
