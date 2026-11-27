@@ -40,7 +40,7 @@ describe('audit', () => {
     const first = JSON.parse(lines[0]);
     assert.equal(first.owner, 'jaykk99');
     assert.equal(first.tool, 'run_terminal');
-    assert.equal(first.command, 'ls');
+    assert.equal(first.command, '[omitted]');
     assert.equal(first.ok, true);
     assert.match(first.ts, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
   });

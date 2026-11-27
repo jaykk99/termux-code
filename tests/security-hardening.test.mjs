@@ -1,0 +1,61 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, readFile, stat, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { createSession, verifySession, parseCookies, gatewayAccess, verifyGatewayToken } from '../lib/auth.mjs';
+import { audit } from '../lib/audit.mjs';
+import { fsWriteStore, fsReadStore } from '../lib/token-store-fs.mjs';
+import { logRequest, readJSON } from '../lib/http.mjs';
+
+const env = { OWNER_GITHUB_LOGIN: 'owner', SESSION_SECRET: 'test-only' };
+test('malformed cookies do not crash authentication and duplicate names do not override', async () => {
+  const token = createSession('owner', env);
+  const req = new Request('https://example.test', { headers: { cookie: 'bad=%ZZ; tc_session=' + token } });
+  assert.equal((await gatewayAccess(req, env)).login, 'owner');
+  assert.equal(parseCookies('a=first; a=second').a, 'first');
+  assert.equal(Object.getPrototypeOf(parseCookies('__proto__=ignored')), null);
+  assert.equal(verifySession(token + '.extra', env), null);
+});
+test('legacy tokens must match the current owner and verification is read-only', async () => {
+  const token = 'tc_test_legacy';
+  let writes = 0;
+  const doc = { tokens: [{ hash: createHash('sha256').update(token).digest('hex'), login: 'old-owner' }] };
+  const kv = { get: async () => JSON.stringify(doc), put: async () => { writes++; } };
+  assert.equal(await verifyGatewayToken(token, { ...env, GATEWAY_KV: kv }), null);
+  doc.tokens[0].login = 'owner';
+  assert.deepEqual(await verifyGatewayToken(token, { ...env, GATEWAY_KV: kv }), { login: 'owner' });
+  assert.equal(writes, 0);
+});
+test('audit excludes raw arguments and token store uses private atomic files', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'tc-security-'));
+  try {
+    const log = path.join(dir, 'audit.log');
+    await audit({ tool: 'test', args: 'arbitrary sensitive input', nested: { cookie: 'fake-cookie' }, ok: true }, { AUDIT_LOG_PATH: log });
+    const data = await readFile(log, 'utf8');
+    assert.doesNotMatch(data, /arbitrary sensitive input|fake-cookie/);
+    assert.equal(JSON.parse(data).tool, 'test');
+    if (process.platform !== 'win32') assert.equal((await stat(log)).mode & 0o777, 0o600);
+    const file = path.join(dir, 'tokens.json');
+    await fsWriteStore(file, { tokens: [] });
+    assert.deepEqual(await fsReadStore(file), { tokens: [] });
+    if (process.platform !== 'win32') assert.equal((await stat(file)).mode & 0o777, 0o600);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+test('request logs exclude arbitrary extra input', () => {
+  const lines = [];
+  const original = console.log;
+  try {
+    console.log = value => lines.push(value);
+    logRequest(new Request('https://example.test/api'), 200, 5, 'sensitive test value');
+  } finally { console.log = original; }
+  assert.doesNotMatch(lines.join(' '), /sensitive test value/);
+});
+test('oversized body cancels stream and returns 413', async () => {
+  let cancelled = false;
+  const stream = new ReadableStream({ pull(c) { c.enqueue(new Uint8Array(16)); }, cancel() { cancelled = true; } });
+  const req = new Request('https://example.test/api', { method: 'POST', body: stream, duplex: 'half' });
+  await assert.rejects(readJSON(req, { maxBytes: 8 }), e => e.status === 413);
+  assert.equal(cancelled, true);
+});
