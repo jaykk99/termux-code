@@ -196,6 +196,10 @@ describe('termux-code CLI without a REPL', () => {
     assert.match(payload.answer, /STUB ANSWER/);
     assert.equal(payload.model, MODEL.id);
     assert.equal(payload.savedSession, null);
+    assert.equal(payload.stepBudget, payload.steps);
+    assert.equal(payload.execution.completionCalls, 1);
+    assert.equal(payload.execution.toolResults, 0);
+    assert.equal(payload.execution.stopReason, 'model_answer');
   });
 
   it('accepts the prompt on stdin', async () => {

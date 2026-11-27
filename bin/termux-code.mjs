@@ -400,6 +400,9 @@ export async function turn(model, messages, rl, root, completeFn, gateway = {}, 
   const changed = new Set();
   let verifyAttempts = 0;
   let protocolRetries = 0;
+  // Optional caller-owned diagnostics. These are observations, not model claims.
+  const metrics = agent.metrics || {};
+  Object.assign(metrics, { completionCalls: 0, toolResults: 0, verification: 'not_run', stopReason: 'incomplete' });
   const originalRequest = [...messages].reverse().find(m => m?.role === 'user' && typeof m.content === 'string')?.content || '';
   const progress = createTaskProgress(originalRequest);
   // One budget for the whole turn. The reasoning policy sets the per-mode cap
@@ -449,6 +452,7 @@ export async function turn(model, messages, rl, root, completeFn, gateway = {}, 
     const spin = spinner(`${step === 0 ? 'Thinking' : 'Working'} · ${who}`);
     let reply;
     try {
+      metrics.completionCalls++;
       reply = await completeFn();
       // /trace: the model's own words for this step, before any tool parsing —
       // the closest thing a text worker has to a visible train of thought.
@@ -490,6 +494,7 @@ export async function turn(model, messages, rl, root, completeFn, gateway = {}, 
         console.log('\n' + box(wrap(oneLine(err.message, 400), width() - 6), { title: C.red('error'), colour: C.red }));
         console.log(C.dim('  /model to switch, or check the key for this provider.\n'));
       }
+      metrics.stopReason = 'provider_error';
       return null;
     }
     spin.stop();
@@ -509,6 +514,7 @@ export async function turn(model, messages, rl, root, completeFn, gateway = {}, 
     if (!reply.toolCalls.length && reply.textProtocolErrors?.length) {
       if (protocolRetries >= 2) {
         console.log(C.red('  [tools] This model failed to format tool requests after two retries. No action was executed. Use /model-info and choose a native-tool-capable provider with /model.\\n'));
+        metrics.stopReason = 'tool_protocol_error';
         return null;
       }
       protocolRetries += 1;
@@ -530,15 +536,20 @@ export async function turn(model, messages, rl, root, completeFn, gateway = {}, 
       // The model thinks it's done. Check its work if it changed anything.
       if (progress.coding && !progress.changed && !progress.inspected && !progress.blocked) {
         console.log(C.red('  [workflow] No project inspection or implementation occurred; task is incomplete.'));
+        metrics.stopReason = 'no_implementation_evidence';
         return null;
       }
       // Every exit below returns the final answer so a one-shot run can
       // report it (and set its exit code); null means the turn failed.
       const v = agent.verify;
-      if (!changed.size || !v?.enabled || !v.command) return reply.text ?? '';
+      if (!changed.size || !v?.enabled || !v.command) {
+        metrics.stopReason = reply.text?.trim() ? 'model_answer' : 'empty_answer';
+        return reply.text?.trim() ? reply.text : null;
+      }
       const verifyLimit = agent.reasoning?.maxVerifyAttempts ?? MAX_VERIFY_ATTEMPTS;
       if (verifyAttempts >= verifyLimit) {
         console.log(C.red(`\n  [verify] still failing after ${verifyLimit} fix attempts. Stopping here so you can take a look.`));
+        metrics.stopReason = 'verification_failed';
         return null;
       }
       if (!v.approved) {
@@ -546,6 +557,8 @@ export async function turn(model, messages, rl, root, completeFn, gateway = {}, 
         if (!v.approved) {
           v.enabled = false;
           console.log(C.dim('  [verify] off for this session. /verify on to re-enable.'));
+          metrics.verification = 'declined';
+          metrics.stopReason = 'verification_declined';
           return reply.text ?? '';
         }
       }
@@ -555,9 +568,12 @@ export async function turn(model, messages, rl, root, completeFn, gateway = {}, 
       const output = await runCommand(v.command, root, VERIFY_TIMEOUT_MS);
       spinV.stop();
       if (exitCodeOf(output) === 0) {
+        metrics.verification = 'passed';
+        metrics.stopReason = 'verified_answer';
         console.log(toolResult(`passed (${v.command})`, { ok: true }));
         return reply.text ?? '';
       }
+      metrics.verification = 'failed';
       console.log(toolResult(output.split('\n').slice(-12).join('\n'), { ok: false }));
       messages.push({ role: 'user', content: failureMessage(v.command, output, verifyAttempts, verifyLimit, changed) });
       stillWorking = true;
@@ -632,6 +648,7 @@ export async function turn(model, messages, rl, root, completeFn, gateway = {}, 
         result = `Error: ${err.message}`;
         ok = false;
       }
+      metrics.toolResults++;
       observeTaskTool(progress, call.name, call.args, result);
       if (wroteFiles(call.name, result)) for (const p of pathsFromCall(call)) changed.add(p);
       console.log(toolResult(result, { ok: ok && !/Syntax check failed|JSON syntax error|WARNING:/.test(String(result)) }));
@@ -652,6 +669,7 @@ export async function turn(model, messages, rl, root, completeFn, gateway = {}, 
     }
     break;
   }
+  metrics.stopReason = 'step_budget';
   console.log('\n' + C.red(`Stopped after ${spent} tool steps. Say "continue" to resume.`));
   return null;
 }
@@ -1265,6 +1283,7 @@ async function main(workspaceOverride = null) {
     let autopilot = null;
     let commit = null;
     let reasoning;
+    const metrics = {};
     messages.push({ role: 'user', content: prompt });
     await persist();
     if (args.json) console.log = (...a) => console.error(...a); // keep stdout clean
@@ -1287,7 +1306,7 @@ async function main(workspaceOverride = null) {
         answer = await turn(model, messages, rl, root, () => completeFor(messages), {
           gateway: cfg.gateway,
           gatewayToken: cfg.gatewayToken,
-        }, { verify: verifyState, summarize, verbose: args.verbose || state.verbose, trace: state.trace, think: state.think, deep: state.deep, mcpServers, reconSettings: currentRecon, isReconActive: () => reconActive, spawn: runSubagent, checkpoint: persist, reasoning });
+        }, { verify: verifyState, summarize, verbose: args.verbose || state.verbose, trace: state.trace, think: state.think, deep: state.deep, mcpServers, reconSettings: currentRecon, isReconActive: () => reconActive, spawn: runSubagent, checkpoint: persist, reasoning, metrics });
         if (args.commit && !args.noCommit && typeof answer === 'string') commit = await tryCommit(prompt);
       }
     } finally {
@@ -1303,7 +1322,9 @@ async function main(workspaceOverride = null) {
           model: model.id,
           provider: model.provider,
           source: model.source,
-          steps: reasoning.maxSteps,
+          steps: reasoning.maxSteps, // backward-compatible configured budget
+          stepBudget: reasoning.maxSteps,
+          execution: autopilot ? null : metrics,
           reasoning: reasoning.effort,
           savedSession: session.meta.id || null,
           autopilot: autopilot

@@ -60,3 +60,19 @@ test('repeated promises with no tool calls do not falsely report implementation 
   assert.equal(r.result,null);
   assert.equal(r.count,3);
 });
+
+test('diagnostics distinguish actual calls from budget and count returned results', async () => {
+  const metrics = {};
+  const r = await run([{role:'system',content:'sys'},{role:'user',content:'List workspace'}],
+    [reply('',[call('list_dir',{})]),reply('Listed.')],
+    {metrics, toolRunner:async()=> 'README.md'});
+  assert.equal(r.result,'Listed.');
+  assert.deepEqual(metrics,{completionCalls:2,toolResults:1,verification:'not_run',stopReason:'model_answer'});
+});
+test('empty replies do not count as successful answers', async () => {
+  const metrics = {};
+  const r = await run([{role:'system',content:'sys'},{role:'user',content:'hello'}],[reply('')],{metrics});
+  assert.equal(r.result,null);
+  assert.equal(metrics.stopReason,'empty_answer');
+  assert.equal(metrics.completionCalls,1);
+});
