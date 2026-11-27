@@ -10,7 +10,7 @@ if (process.argv.length > 2) {
     const result = await auditWorkspace(process.cwd());
     console.log(JSON.stringify(result, null, 2));
     if (result.truncated || result.unreadable) process.exitCode = 2;
-    else if (result.findings.some(f => f.severity === 'high')) process.exitCode = 1;
+    else if (result.severityCounts.high > 0) process.exitCode = 1;
   } catch {
     console.error('Workspace audit could not complete.');
     process.exitCode = 2;

@@ -7,3 +7,5 @@ The audit works offline, without model credentials, and reports file permission 
 Exit codes: 0 = complete with no high-severity findings; 1 = high-severity findings; 2 = incomplete, unreadable, or invalid invocation. A clean result does not establish that a workspace is secure.
 
 CLI JSON execution diagnostics distinguish actual completion calls and tool results from the configured step budget, and report verification and stop reasons. These fields are observations, not a guarantee that a model finished all requested work.
+
+The detail list is capped at 50 entries; severity counts include all observed findings. Higher-severity findings take precedence in the displayed details. Newly minted signed gateway tokens default to 30 days (1–90 via `GATEWAY_TOKEN_TTL_DAYS`). Previously issued signed tokens retain their embedded expiry. Rotate the signing secret to invalidate them; deleting legacy tokens does not revoke signed tokens. Token API responses are marked no-store.

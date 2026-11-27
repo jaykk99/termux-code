@@ -81,3 +81,33 @@ test('local defensive audit flags insecure files, skips templates and never foll
     assert.equal((await auditWorkspace(workspace, { maxEntries: 1 })).truncated, true);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('new signed tokens have bounded configurable lifetimes', async () => {
+  const { issueGatewayToken, verifyGatewayToken, gatewayTokenTtlMs } = await import('../lib/auth.mjs');
+  const day = 86400000;
+  assert.equal(gatewayTokenTtlMs({}), 30 * day);
+  for (const bad of ['0','91','1.5','abc','-1']) assert.equal(gatewayTokenTtlMs({GATEWAY_TOKEN_TTL_DAYS:bad}), 30 * day);
+  const cfg = {...env,GATEWAY_TOKEN_TTL_DAYS:'2'};
+  const now = 1700000000000;
+  const token = await issueGatewayToken('owner',cfg,now);
+  assert.ok(await verifyGatewayToken(token,cfg,now+2*day-1));
+  assert.equal(await verifyGatewayToken(token,cfg,now+2*day),null);
+});
+test('audit counts every finding even when the detail list is capped', async () => {
+  const { auditWorkspace } = await import('../lib/security-audit.mjs');
+  const { writeFile, chmod, symlink, mkdir } = await import('node:fs/promises');
+  const dir = await mkdtemp(path.join(tmpdir(), 'tc-audit-counts-'));
+  try {
+    const sub = path.join(dir,'sub');
+    await mkdir(sub);
+    for (let i=0;i<55;i++) await symlink(sub,path.join(dir,'link-'+i));
+    await writeFile(path.join(sub,'.env'),'fake-fixture');
+    await chmod(path.join(sub,'.env'),0o644);
+    const report=await auditWorkspace(dir);
+    assert.equal(report.severityCounts.high,1);
+    assert.equal(report.severityCounts.info,55);
+    assert.equal(report.findings.length,50);
+    assert.equal(report.omittedFindings,6);
+    assert.ok(report.findings.some(f=>f.severity==='high'));
+  } finally {await rm(dir,{recursive:true,force:true});}
+});

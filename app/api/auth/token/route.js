@@ -58,7 +58,7 @@ export async function POST(req) {
   try {
     const token = await issueGatewayToken(session.login, env);
     logRequest(req, 200, Date.now() - started, `login=${session.login}`);
-    return Response.json({ ok: true, token });
+    return Response.json({ ok: true, token }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (err) {
     logRequest(req, 500, Date.now() - started, `mint failed: ${err?.message || err}`);
     return storeFailed();
@@ -76,7 +76,7 @@ export async function GET(req) {
   try {
     const tokens = await listGatewayTokens(session.login, env);
     logRequest(req, 200, Date.now() - started);
-    return Response.json({ ok: true, tokens });
+    return Response.json({ ok: true, tokens }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (err) {
     logRequest(req, 500, Date.now() - started, `list failed: ${err?.message || err}`);
     return storeFailed();
@@ -94,7 +94,7 @@ export async function DELETE(req) {
   try {
     const revoked = await revokeGatewayTokens(session.login, env);
     logRequest(req, 200, Date.now() - started, `revoked=${revoked}`);
-    return Response.json({ ok: true, revoked });
+    return Response.json({ ok: true, revoked }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (err) {
     logRequest(req, 500, Date.now() - started, `revoke failed: ${err?.message || err}`);
     return storeFailed();
