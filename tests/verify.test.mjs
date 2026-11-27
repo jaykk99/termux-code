@@ -218,3 +218,13 @@ describe('failureMessage', () => {
     assert.match(msg, /the project/);
   });
 });
+
+testExitStatusContract();
+function testExitStatusContract() {
+  it('does not accept malformed status prefixes as a successful check', () => {
+    assert.equal(exitCodeOf('exit 0garbage'), 1);
+    assert.equal(exitCodeOf('exit 0.5'), 1);
+    assert.equal(exitCodeOf('exit 0\r\nreal output'), 0);
+    assert.equal(exitCodeOf('exit 1\nexit 0'), 1);
+  });
+}
