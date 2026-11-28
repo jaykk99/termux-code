@@ -43,3 +43,31 @@ test('valid manifests and explicit module syntax pass',async()=>{
     assert.equal(result.checked,2);
   } finally {await rm(root,{recursive:true,force:true});}
 });
+
+test('checks ordinary JS using nearest explicit package type',async()=>{
+  const root=await mkdtemp(path.join(tmpdir(),'tc-js-scope-'));
+  try {
+    await writeFile(path.join(root,'package.json'),'{"type":"module"}');
+    await mkdir(path.join(root,'nested'));
+    await writeFile(path.join(root,'nested','module.js'),'export const x = 1;');
+    await mkdir(path.join(root,'common'));
+    await writeFile(path.join(root,'common','package.json'),'{"type":"commonjs"}');
+    await writeFile(path.join(root,'common','bad.js'),'export const x = 1;');
+    const result=await verifyLocalProject(root);
+    assert.equal(result.complete,true);
+    assert.equal(result.failed,1);
+    assert.equal(result.checks.find(c=>c.path==='nested/module.js').status,'passed');
+    assert.equal(result.checks.find(c=>c.path==='common/bad.js').status,'failed');
+  } finally {await rm(root,{recursive:true,force:true});}
+});
+test('ambiguous JS files cannot silently pass as verified',async()=>{
+  const root=await mkdtemp(path.join(tmpdir(),'tc-js-ambiguous-'));
+  try {
+    await writeFile(path.join(root,'package.json'),'{}');
+    await writeFile(path.join(root,'index.js'),'const x = 1;');
+    const result=await verifyLocalProject(root);
+    assert.equal(result.complete,false);
+    assert.equal(result.ok,false);
+    assert.equal(result.checks.find(c=>c.path==='index.js').status,'ambiguous_module_mode');
+  } finally {await rm(root,{recursive:true,force:true});}
+});
