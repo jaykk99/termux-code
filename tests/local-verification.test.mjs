@@ -71,3 +71,18 @@ test('ambiguous JS files cannot silently pass as verified',async()=>{
     assert.equal(result.checks.find(c=>c.path==='index.js').status,'ambiguous_module_mode');
   } finally {await rm(root,{recursive:true,force:true});}
 });
+
+test('reports excluded, unsupported and linked entries separately from checked files',async()=>{
+  const root=await mkdtemp(path.join(tmpdir(),'tc-skip-counts-'));
+  try {
+    await writeFile(path.join(root,'main.mjs'),'export const x = 1;');
+    await writeFile(path.join(root,'view.jsx'),'not checked');
+    await writeFile(path.join(root,'.hidden.mjs'),'not checked');
+    await mkdir(path.join(root,'node_modules'));
+    await symlink(path.join(root,'main.mjs'),path.join(root,'link.mjs'));
+    const result=await verifyLocalProject(root);
+    assert.equal(result.complete,true);
+    assert.equal(result.checked,1);
+    assert.deepEqual(result.skipped,{excluded:2,symlinks:1,unsupportedFiles:1,specialFiles:0});
+  } finally {await rm(root,{recursive:true,force:true});}
+});
